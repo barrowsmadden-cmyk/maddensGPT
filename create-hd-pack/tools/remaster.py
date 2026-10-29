@@ -287,7 +287,7 @@ def remaster_frame(rgba, scale, path, seed=0, block_px=None):
         period = max(3.0, vp / 3)
         detail = 0.5 + 0.25 * np.sin(xx * 2 * np.pi / period) * np.sin(yy * 2 * np.pi / period) + 0.25 * (noise(cells, cells, 3, 14) - 0.5)
     elif cls in ("stone", "ore"):
-        cracks = 1 - sstep(0, vp * 0.9, worley_np(int(cells * cells * 0.35) + 4, rng_seed + 16, size)[:H, :W])
+        cracks = 1 - sstep(0, vp * 0.9, worley_np(int(cells * cells * 0.35) + 4, rng_seed + 16, size, jitter=0.9)[:H, :W])
         detail = 0.75 * noise(cells, cells, 5, 15) + 0.25 * (1 - cracks)
     else:
         detail = noise(cells, cells, 4, 15)

@@ -74,6 +74,8 @@ def worley(npts, seed, size=N, jitter=None):
         cell = size / k
         gy, gx = np.mgrid[0:k, 0:k].reshape(2, -1)
         pts = np.stack([gx, gy], 1) * cell + cell * (0.5 + (r.random((k * k, 2)) - 0.5) * jitter)
+        yy, xx = np.mgrid[0:size, 0:size].astype(float)
+        return cell_search(pts, k, size, xx, yy)[0]
     yy, xx = np.mgrid[0:size, 0:size].astype(float)
     best = np.full((size, size), 1e9)
     for px, py in pts:
@@ -83,6 +85,31 @@ def worley(npts, seed, size=N, jitter=None):
         dy = np.minimum(dy, size - dy)
         best = np.minimum(best, np.hypot(dx, dy))
     return best
+
+
+def cell_search(pts, k, size, xx, yy):
+    """F1, F2 and nearest-point id for points on a jittered k x k grid (one point
+    per cell, row-major), with wrap-around. Each pixel only checks the 5 x 5 cells
+    around its own, which always contains its two nearest points when jitter <= 1."""
+    cell = size / k
+    gx = np.floor(xx / cell).astype(int)
+    gy = np.floor(yy / cell).astype(int)
+    f1 = np.full(xx.shape, 1e9)
+    f2 = np.full(xx.shape, 1e9)
+    ids = np.zeros(xx.shape, int)
+    for oy in range(-2, 3):
+        for ox in range(-2, 3):
+            cx, cy = (gx + ox) % k, (gy + oy) % k
+            i = cy * k + cx
+            px, py = pts[i, 0], pts[i, 1]
+            dx = np.abs(xx - px) % size
+            dy = np.abs(yy - py) % size
+            d = np.hypot(np.minimum(dx, size - dx), np.minimum(dy, size - dy))
+            closer = d < f1
+            f2 = np.where(closer, f1, np.minimum(f2, d))
+            ids = np.where(closer, i, ids)
+            f1 = np.where(closer, d, f1)
+    return f1, f2, ids
 
 
 def blur(a, sigma):

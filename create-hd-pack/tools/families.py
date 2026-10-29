@@ -10,7 +10,7 @@ import re
 import numpy as np
 from PIL import Image
 
-from texgen import (Material, fbm, worley, blur, sstep, round_profile, lerp, _rng,
+from texgen import (Material, fbm, worley, blur, sstep, round_profile, lerp, _rng, cell_search,
                     DIELECTRIC)
 
 LUM = np.array([0.2126, 0.7152, 0.0722])
@@ -58,15 +58,7 @@ def worley2(n_points, seed, size, jitter=0.9):
     gy, gx = np.mgrid[0:k, 0:k].reshape(2, -1)
     pts = np.stack([gx, gy], 1) * cell + cell * (0.5 + (r.random((k * k, 2)) - 0.5) * jitter)
     xx, yy = grid(size)
-    f1 = np.full((size, size), 1e9)
-    f2 = np.full((size, size), 1e9)
-    ids = np.zeros((size, size), int)
-    for i, (px, py) in enumerate(pts):
-        d = np.hypot(wrap_d(xx, px, size), wrap_d(yy, py, size))
-        closer = d < f1
-        f2 = np.where(closer, f1, np.minimum(f2, d))
-        ids = np.where(closer, i, ids)
-        f1 = np.where(closer, d, f1)
+    f1, f2, ids = cell_search(pts, k, size, xx, yy)
     return f1, f2, ids, len(pts)
 
 

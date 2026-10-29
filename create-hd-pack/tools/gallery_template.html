@@ -1,0 +1,81 @@
+<title>Create HD Mod Gallery</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: contact sheet — one band per mod, cards pairing the original 16px art with the HD lit render */
+:root {
+  --bg: #16161a; --panel: #1f1f24; --line: #34343c; --fg: #ecebe6; --muted: #a3a29b;
+  --brass: #e3b45a; --brass-ink: #241a08;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #efede7; --panel: #f8f7f3; --line: #d6d3ca; --fg: #1d1c19; --muted: #5f5d55;
+  --brass: #9a6a12; --brass-ink: #fffaf0; color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #efede7; --panel: #f8f7f3; --line: #d6d3ca; --fg: #1d1c19; --muted: #5f5d55;
+  --brass: #9a6a12; --brass-ink: #fffaf0; color-scheme: light; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 22px; }
+header { display: grid; gap: 8px; }
+h1 { font: 800 clamp(30px, 4.4vw, 46px)/1 var(--display); margin: 0; text-transform: uppercase; text-wrap: balance; }
+h1 span { color: var(--brass); }
+.lede { color: var(--muted); max-width: 70ch; margin: 0; }
+.jump { display: flex; flex-wrap: wrap; gap: 6px; }
+.jump a { font: 500 13px var(--body); color: var(--fg); text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 9px; }
+.jump a:hover, .jump a:focus-visible { border-color: var(--brass); outline: none; }
+section { display: grid; gap: 10px; scroll-margin-top: 12px; }
+h2 { font: 600 24px/1.1 var(--display); margin: 0; letter-spacing: .02em; text-transform: uppercase; }
+h2 small { font: 12px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; margin-left: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px; display: grid; gap: 6px; min-width: 0; }
+.pair { position: relative; }
+.pair .hd { width: 100%; aspect-ratio: 1; display: block; border-radius: 3px; }
+.pair .orig { position: absolute; left: 6px; bottom: 6px; width: 34%; aspect-ratio: 1; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 2px; }
+.name { font: 12px var(--mono); overflow-wrap: anywhere; }
+.meta { font: 11px var(--mono); color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.tag.hero { color: var(--brass-ink); background: var(--brass); border-color: var(--brass); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Create <span>HD</span> Mod Gallery</h1>
+    <p class="lede">A fixed sample from every mod in the pack. Each card shows the HD texture lit by the pack's own LabPBR decoder, with the original texture in the corner. Gold tags are 256× hero blocks; everything else is 64× (items 64×, animations 32×).</p>
+    <nav class="jump" id="jump" aria-label="Jump to a mod"></nav>
+  </header>
+  <main id="mods"></main>
+</div>
+
+<script>
+const DATA = /*__GALLERY__*/null;
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const jump = document.getElementById("jump"), main = document.getElementById("mods");
+for (const m of DATA) {
+  if (!m.cards.length) continue;
+  const id = "mod-" + slug(m.mod);
+  const a = document.createElement("a"); a.href = "#" + id; a.textContent = m.mod; jump.appendChild(a);
+  const sec = document.createElement("section"); sec.id = id;
+  const h = document.createElement("h2"); h.textContent = m.mod;
+  const sm = document.createElement("small"); sm.textContent = m.count.toLocaleString() + " textures"; h.appendChild(sm);
+  const grid = document.createElement("div"); grid.className = "grid";
+  for (const c of m.cards) {
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<div class="pair"><img class="hd" alt=""><img class="orig" alt=""></div>
+      <div class="name"></div><div class="meta"><span class="tag"></span><span></span></div>`;
+    card.querySelector(".hd").src = c.hd; card.querySelector(".hd").alt = c.name + " (HD, lit)";
+    card.querySelector(".orig").src = c.orig; card.querySelector(".orig").alt = c.name + " (original)";
+    card.querySelector(".name").textContent = c.name;
+    const tag = card.querySelector(".tag"); tag.textContent = c.tier; if (c.tier === "hero") tag.classList.add("hero");
+    card.querySelector(".meta span:last-child").textContent = c.kind + " · " + c.px + "px";
+    grid.appendChild(card);
+  }
+  sec.append(h, grid); main.appendChild(sec);
+}
+</script>

@@ -100,8 +100,18 @@ def main():
         only = set(x for x in rest[i + 1:] if not x.startswith("--"))
     if "--jobs" in rest:
         jobs = int(rest[rest.index("--jobs") + 1])
+    skip = set()
+    if "--handbuilt" in rest:
+        # textures the hand-built pack provides are overlaid later; don't build them
+        hb = os.path.join(rest[rest.index("--handbuilt") + 1], "assets")
+        for root, _, files in os.walk(hb):
+            for f in files:
+                if f.endswith(".png") and not f.endswith(("_n.png", "_s.png")):
+                    rel = os.path.relpath(os.path.join(root, f), hb).split(os.sep)
+                    skip.add((rel[0], "/".join(rel[1:])))
     plan = json.load(open(plan_path))["plan"]
-    todo = [t for t in plan if only is None or t["ns"] in only]
+    todo = [t for t in plan if (only is None or t["ns"] in only) and (t["ns"], t["path"]) not in skip]
+    print(f"{len(todo)} to build, {len(skip)} provided by the hand-built pack", flush=True)
     # biggest first so the pool finishes evenly
     todo.sort(key=lambda t: -t["texels"])
     log = {"routes": {}, "failures": []}
