@@ -1,0 +1,6 @@
+rootProject.name = 'aiplayers'
+
+// core: Minecraft-independent AI brain (API client, actions, chat narration).
+// A NeoForge subproject that depends on :core is added once the NeoForge and
+// Mojang hosts are reachable from the build environment.
+include 'core'

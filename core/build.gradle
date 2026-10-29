@@ -1,0 +1,40 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+dependencies {
+    // Minecraft bundles Gson at runtime, so the mod will not need to ship it.
+    // Only long-standing Gson APIs are used so the bundled version is compatible.
+    api 'com.google.code.gson:gson:2.11.0'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+    options.compilerArgs += ['-Xlint:all', '-Werror']
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Sends one sample turn to the configured provider: ./gradlew :core:checkApi --args="aiplayers.json"
+tasks.register('checkApi', JavaExec) {
+    group = 'verification'
+    description = 'Checks the AI provider settings by running one bot turn outside Minecraft.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.maddensgpt.aiplayers.core.tools.ApiCheck'
+    workingDir = rootProject.projectDir
+    standardInput = System.in
+}
