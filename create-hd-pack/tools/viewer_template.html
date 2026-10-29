@@ -176,12 +176,23 @@ function material(set, mode, depth, alpha) {
   if (mode === "flat") return new THREE.MeshStandardMaterial({ map, roughness: 0.85, metalness: 0, alphaTest: alpha ? 0.5 : 0 });
   const orm = tex(set.orm, false);
   const d = 0.25 * depth; // LabPBR: height 0 = 25% of a block deep
-  return new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardMaterial({
     map, normalMap: tex(set.normal, false), normalScale: new THREE.Vector2(1, 1),
     aoMap: orm, aoMapIntensity: 1, roughnessMap: orm, metalnessMap: orm, roughness: 1, metalness: 1,
     displacementMap: tex(set.height, false), displacementScale: d, displacementBias: -d,
     alphaTest: alpha ? 0.5 : 0, envMapIntensity: 1,
   });
+  // Displacement is the preview's stand-in for shader parallax. Fade it out at a
+  // face's free edges (where it meets a face at an angle) so the mesh can't open
+  // cracks there; shaders do parallax per pixel and never have this problem.
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = "attribute float edgeFade;\n" + sh.vertexShader.replace(
+      "#include <displacementmap_vertex>",
+      `#ifdef USE_DISPLACEMENTMAP
+        transformed += normalize(objectNormal) * (texture2D(displacementMap, vUv).x * displacementScale + displacementBias) * edgeFade;
+      #endif`);
+  };
+  return m;
 }
 
 // One face = subdivided plane with its UVs remapped to a 0..16 Minecraft UV rect.
@@ -193,7 +204,7 @@ const FACES = {
   east:  { n: [1, 0, 0],  rot: [0, Math.PI / 2, 0] },
   west:  { n: [-1, 0, 0], rot: [0, -Math.PI / 2, 0] },
 };
-function face(name, size, uv, mat, segs) {
+function face(name, size, uv, mat, segs, free) {
   const [sx, sy, sz] = size;
   const w = name === "east" || name === "west" ? sz : sx;
   const h = name === "up" || name === "down" ? sz : sy;
@@ -204,6 +215,19 @@ function face(name, size, uv, mat, segs) {
     a.setXY(i, u0 / 16 + a.getX(i) * (u1 - u0) / 16, 1 - v1 / 16 + a.getY(i) * (v1 - v0) / 16);
   }
   g.setAttribute("uv2", new THREE.BufferAttribute(a.array, 2));
+  // per-vertex fade to 0 over two segments at free edges (texture space: row 0 = top)
+  free = free || { up: true, down: true, left: true, right: true };
+  const fade = new Float32Array(a.count);
+  for (let i = 0; i < a.count; i++) {
+    const ix = i % (segs + 1), iy = Math.floor(i / (segs + 1));
+    let d = 99;
+    if (free.up) d = Math.min(d, iy);
+    if (free.down) d = Math.min(d, segs - iy);
+    if (free.left) d = Math.min(d, ix);
+    if (free.right) d = Math.min(d, segs - ix);
+    fade[i] = Math.min(1, d / 2);
+  }
+  g.setAttribute("edgeFade", new THREE.BufferAttribute(fade, 1));
   const m = new THREE.Mesh(g, mat);
   const f = FACES[name];
   m.rotation.set(...f.rot);
@@ -256,9 +280,15 @@ const TEX_AXES = {
   east: { r: [0, 0, -1], u: [0, 1, 0] }, west: { r: [0, 0, 1], u: [0, 1, 0] },
   up: { r: [1, 0, 0], u: [0, 0, -1] }, down: { r: [1, 0, 0], u: [0, 0, 1] },
 };
+// A neighbour only connects if its own face is visible: Create's isBeingBlocked
+// (and Continuity with innerSeams=true) refuse when the same block sits in front of it.
 function faceContext(p, f) {
   const { r, u } = TEX_AXES[f];
-  const at = (dx, dy) => solid(p[0] + r[0] * dx + u[0] * dy, p[1] + r[1] * dx + u[1] * dy, p[2] + r[2] * dx + u[2] * dy);
+  const n = FACES[f].n;
+  const at = (dx, dy) => {
+    const q = [p[0] + r[0] * dx + u[0] * dy, p[1] + r[1] * dx + u[1] * dy, p[2] + r[2] * dx + u[2] * dy];
+    return solid(q[0], q[1], q[2]) && !solid(q[0] + n[0], q[1] + n[1], q[2] + n[2]);
+  };
   const up = at(0, 1), down = at(0, -1), left = at(-1, 0), right = at(1, 0);
   return { up, down, left, right, topLeft: up && left && at(-1, 1), topRight: up && right && at(1, 1),
     bottomLeft: down && left && at(-1, -1), bottomRight: down && right && at(1, -1) };
@@ -276,11 +306,13 @@ function buildBlock(entry, mode, depth, segs, wallPos, mats) {
     for (const f of Object.keys(FACES)) {
       const end = (f === "up" || f === "down") && mats.end;
       let mat = end ? mats.end : mats.base, uv = [0, 0, 16, 16];
+      let free = null;
       if (wallPos) {
         const n = FACES[f].n;
         if (solid(wallPos[0] + n[0], wallPos[1] + n[1], wallPos[2] + n[2])) continue;  // hidden face
+        const ctx = faceContext(wallPos, f);
+        free = { up: !ctx.up, down: !ctx.down, left: !ctx.left, right: !ctx.right };
         if (entry.ct) {
-          const ctx = faceContext(wallPos, f);
           const i = entry.ct.type === "omni" ? omniIndex(ctx) : ctmIndex(ctx);
           // tiles sit in padded cells; map onto the tile inside the gutter
           const { cell, gutter, size } = entry.ct;
@@ -288,7 +320,7 @@ function buildBlock(entry, mode, depth, segs, wallPos, mats) {
           mat = end ? mats.endSheet : mats.sheet; uv = [x0 * k, y0 * k, (x0 + t) * k, (y0 + t) * k];
         }
       }
-      grp.add(face(f, [1, 1, 1], uv, mat, segs));
+      grp.add(face(f, [1, 1, 1], uv, mat, segs, free));
     }
   }
   return grp;

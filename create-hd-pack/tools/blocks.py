@@ -21,14 +21,17 @@ PITCH, OFFSET = 64, 32  # plank/rib seams at 32 + 64k: one seam on each inner fr
 def casing(ctx, frame_metal, seed, panel_fn, bolt_metal=None, dents=0.0):
     m = Material()
     panel_fn(m, ctx)
-    _, joints = frame(m, FW, frame_metal, seed, ctx=ctx, dents=dents)
+    # flush outer edge (barely rounded): where Create puts a bar on both faces of an
+    # inside step or an outside corner, the two halves meet as one angle, no groove
+    _, joints = frame(m, FW, frame_metal, seed, ctx=ctx, dents=dents, outer_bevel=1.5)
     bm = bolt_metal or frame_metal
     for i, (bx, by) in enumerate(joints):
         hex_bolt(m, bx, by, 7.5, 0.98, bm, frame_metal, seed + 31 * i)
     return m
 
 
-CASING_OPTS = dict(edges="reflect")
+# tallest point is a bolt head at ~1.23 (frame top 1.0 + head): scale into 0..1
+CASING_OPTS = dict(edges="reflect", height_scale=0.8)
 
 
 def andesite_casing(ctx=ISOLATED):
@@ -172,7 +175,7 @@ def industrial_iron_block(ctx=ISOLATED, top=False):
     hammer = worley(144, 52, jitter=0.9)
     dent = (1 - sstep(0, 13, hammer)) ** 2
     s = scratches(55, 53, length=(5, 22))
-    h = 0.55 + 0.45 * round_profile(d, 6) - dent * 0.012 + (tone - 0.5) * 0.015 - s * 0.01
+    h = 0.55 + 0.45 * round_profile(d, 1.5) - dent * 0.012 + (tone - 0.5) * 0.015 - s * 0.01
     # inset panel line 1.5 vanilla px in from the plate edge (follows the whole connected plate)
     line = np.abs(d - 24)
     h -= 0.16 * (1 - np.clip(line / 2.5, 0, 1)) ** 1.5
@@ -206,7 +209,7 @@ def industrial_iron_block(ctx=ISOLATED, top=False):
             pts.append(p)
     for rx, ry in pts:
         rivet(m, rx, ry, 5.5, 0.97, STEEL)
-    return m, dict(edge_wear=0.4, edges="reflect")
+    return m, dict(edge_wear=0.4, edges="reflect", height_scale=0.9)
 
 
 def industrial_iron_block_top(ctx=ISOLATED):
@@ -230,7 +233,9 @@ def build_ctm(name, fn, outdir_assets, block_id):
     with open(f"{folder}/{name}.properties", "w") as f:
         f.write(f"# Continuity connected textures (OptiFine CTM format)\n"
                 f"method=ctm\nmatchBlocks={block_id}\nmatchTiles=create:block/{name}\n"
-                f"tiles=0-46\nconnect=block\n")
+                f"tiles=0-46\nconnect=block\n"
+                f"# like Create's casings: don't connect to a neighbour whose face is covered\n"
+                f"innerSeams=true\n")
     return tiles
 
 
@@ -248,7 +253,7 @@ def brass_block():
     tarnish = (1 - np.clip(d / 20, 0, 1)) * 0.3 + sstep(0.62, 0.8, fbm(8, 8, 4, 66)) * 0.15
     alb = lerp(alb, col(130, 86, 36), tarnish)
     m.put(np.ones((N, N)), albedo=alb, height=h, smooth=0.8 + (fine - 0.5) * 0.12 - tarnish * 0.35, f0=ALBEDO_METAL)
-    return m, dict(edge_wear=0.35)
+    return m, dict(edge_wear=0.35, height_scale=0.99)
 
 
 def _rod(axis_vertical=True):

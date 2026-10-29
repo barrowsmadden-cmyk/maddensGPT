@@ -171,7 +171,8 @@ class Material:
             self.porosity = self.porosity + (porosity - self.porosity) * m
 
 
-def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0, edges="wrap", pad=None):
+def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0, edges="wrap", pad=None,
+           height_scale=1.0):
     """Turn material layers into (albedo RGBA, _n RGBA, _s RGBA) uint8 arrays.
 
     edges: "wrap" for textures that tile against themselves; "reflect" for
@@ -227,7 +228,13 @@ def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.
     albedo = albedo * (1 - bake_ao * (1 - ao))[..., None]
 
     a8 = np.dstack([np.clip(albedo, 0, 1) * 255, mat.alpha * 255]).round().astype(np.uint8)
-    hmap = 255 * (1 - (1 - np.clip(h, 0, 1)) * HEIGHT_RANGE)
+    # the stored height must fit LabPBR's 0..1 range: anything above 1 would be
+    # clipped flat (cut-off bolt heads). height_scale is fixed per generator so
+    # every tile of a connected set keeps the same scale.
+    hs_ = h * height_scale
+    if hs_.max() > 1.0 + 1e-3:
+        raise ValueError(f"height {hs_.max():.3f} exceeds 1.0; lower this generator's height_scale")
+    hmap = 255 * (1 - (1 - np.clip(hs_, 0, 1)) * HEIGHT_RANGE)
     n8 = np.dstack([
         (nx * 0.5 + 0.5) * 255,
         (ny * 0.5 + 0.5) * 255,
