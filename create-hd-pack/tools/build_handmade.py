@@ -71,7 +71,10 @@ def main(pack, size=64, src=None, plan=None):
             else:
                 continue
             img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
-            write(pack, t["ns"], t["path"], renderer(t["path"], img, t["w"] * t["scale"]))
+            maps = renderer(t["path"], img, t["w"] * t["scale"])
+            if maps is None:                      # no traced design fits this texture's shape
+                continue
+            write(pack, t["ns"], t["path"], maps)
             n += 1
     if src:
         for rel, layout, opts in bricks.textures():
@@ -84,7 +87,7 @@ def main(pack, size=64, src=None, plan=None):
     for rel, tool, mat in tools.items():
         base = os.path.join(pack, "assets", "minecraft", rel[:-4])
         os.makedirs(os.path.dirname(base), exist_ok=True)
-        a8, n8, s8 = tools.render(tool, mat, size)
+        a8, n8, s8 = tools.render(tool, mat, size, load_rgba(os.path.join(src, "assets", "minecraft", rel)))
         Image.fromarray(a8, "RGBA").save(base + ".png")
         Image.fromarray(n8, "RGBA").save(base + "_n.png")
         Image.fromarray(s8, "RGBA").save(base + "_s.png")

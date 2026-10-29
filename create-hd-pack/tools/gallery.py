@@ -28,20 +28,27 @@ def uri(img, fmt="JPEG", **kw):
 
 
 def thumb_pair(src, pack, t, size=128):
+    """(original, HD) thumbnails. Items show the HD as the game draws it in hand
+    (extruded sprite, nearest-magnified); blocks show a lit tile."""
     rel = t["path"][:-4]
     base = f"{pack}/assets/{t['ns']}/{rel}"
     maps = [np.asarray(Image.open(base + s + ".png").convert("RGBA")) for s in ("", "_n", "_s")]
     w = maps[0].shape[1]
     maps = [m[:w] for m in maps]
-    lit = tile_view(maps)
-    bg = Image.new("RGBA", lit.size, (40, 40, 44, 255))
-    bg.alpha_composite(lit)
+    if t["kind"] == "item":
+        from ingame_preview import in_hand, to8
+        hd = Image.fromarray(to8(in_hand(maps[0].astype(np.float32) / 255, size)))
+    else:
+        lit = tile_view(maps)
+        hd = Image.new("RGBA", lit.size, (40, 40, 44, 255))
+        hd.alpha_composite(lit)
+        hd = hd.resize((size, size), Image.LANCZOS)
     orig = Image.open(f"{src}/assets/{t['ns']}/{t['path']}").convert("RGBA")
     orig = orig.crop((0, 0, orig.width, orig.width))
     ob = Image.new("RGBA", orig.size, (40, 40, 44, 255))
     ob.alpha_composite(orig)
     return (uri(ob.resize((size, size), Image.NEAREST), "PNG", optimize=True),
-            uri(bg.resize((size, size), Image.LANCZOS), quality=85), w)
+            uri(hd.convert("RGB"), quality=85), w)
 
 
 def main(src, plan_path, pack, template, out, per_mod=12):

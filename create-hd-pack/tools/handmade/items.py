@@ -80,108 +80,146 @@ def _outline(cover, cv, dark, width=0.55):
 
 
 # ------------------------------------------------------------- designs ---
+# House style (handmade/style.py). Shapes are traced from the originals: texel
+# (x, y) spans x..x+1, y..y+1 in the 16-unit grid. Each design takes the
+# original texture; parts take their tones from the texels they cover.
 
-def ingot(cv, pal):
-    light, mid, dark = pal
-    top = cv.polygon([(1.0, 6.4), (10.6, 2.3), (15.3, 6.1), (5.7, 10.3)])
-    front = cv.polygon([(5.7, 10.3), (15.3, 6.1), (15.6, 9.9), (6.7, 13.9)])
-    left = cv.polygon([(1.0, 6.4), (5.7, 10.3), (6.7, 13.9), (0.4, 10.7)])
-    end_col = tuple((np.array(light) * 0.55 + np.array(mid) * 0.45).round())
-    return [
-        _flat(left, cv, end_col, dark, _ramp(left, top, cv, 0.95, 0.35), grad=0.15, axis=(-1, 0)),
-        _flat(front, cv, mid, dark, _ramp(front, top, cv, 0.95, 0.35), grad=0.25, axis=(1, -1)),
-        _flat(top, cv, light, dark, 0.95, grad=0.18, axis=(-1, -1)),
-    ]
+def _rp(pts, r=0.5):
+    from handmade.style import round_poly
+    return round_poly(pts, r)
 
 
-def nugget(cv, pal):
-    light, mid, dark = pal
-    parts = []
-    for (cx, cy, r) in ((7.2, 7.9, 2.3), (9.6, 7.6, 1.8), (8.2, 6.4, 1.5)):
-        parts.append(_shade_part(cv.circle((cx, cy), r), cv, (light, mid, dark), r * 0.8))
-    return parts
+def mat_of(name):
+    """House-style material for an item name."""
+    if re.search(r"gold", name):
+        return "gold"
+    if re.search(r"copper", name):
+        return "copper"
+    if re.search(r"iron|steel|chain", name):
+        return "iron"
+    if re.search(r"diamond", name):
+        return "gem"
+    if re.search(r"emerald|amethyst|quartz|gem|crystal|lapis|ruby|sapphire|experience", name):
+        return "crystal"
+    if re.search(r"netherite|brass|zinc|bronze|lead|tin|nickel|silver|aluminum|electrum|osmium|platinum|"
+                 r"uranium|ingot|nugget", name):
+        return "metal"
+    if re.search(r"stick|rod", name):
+        return "wood"
+    return "stone"
 
 
-def diamond(cv, pal):
-    light, mid, dark = pal
-    outline = [(6.0, 2.0), (10.0, 2.0), (13.5, 5.5), (14.0, 10.0), (11.0, 14.0), (5.0, 14.0), (2.0, 10.0), (2.5, 5.5)]
-    table = [(6.6, 4.0), (9.6, 4.0), (11.6, 6.4), (11.2, 9.6), (8.2, 11.4), (5.0, 9.6), (4.6, 6.4)]
-    parts = [_flat(cv.polygon(outline), cv, mid, dark, 0.7)]
-    # crown facets between the table and the girdle, alternating tones
-    tones = [light, mid, light, dark, mid, dark, mid, light]
-    for i in range(len(outline)):
-        a, b = outline[i], outline[(i + 1) % len(outline)]
-        c_, d_ = table[min(i, len(table) - 1)], table[(i + 1) % len(table)] if i + 1 < len(table) else table[0]
-        facet = cv.polygon([a, b, d_, c_])
-        parts.append(_flat(facet, cv, tones[i], dark, 0.8 + 0.04 * (i % 2)))
-    table_col = tuple((np.array(light) * 0.6 + np.array(mid) * 0.4).round())
-    parts.append(_flat(cv.polygon(table), cv, table_col, dark, 0.95, grad=0.35, axis=(-1, -1)))
-    parts.append(_flat(cv.polygon([(6.7, 4.7), (7.8, 4.7), (6.2, 6.6)]), cv, light, light, 0.97, edge_w=0.0))
-    return parts
+def ingot_vanilla(cv, src, m):
+    """Long isometric bar: top face, left end, front face, bright edges between them."""
+    from handmade.style import part
+    top = cv.polygon([(0.0, 5.9), (12.0, 2.0), (16.0, 6.0), (4.6, 9.3)])
+    left = cv.polygon([(0.0, 5.9), (4.6, 9.3), (4.6, 13.9), (3.0, 14.0), (0.0, 11.0)])
+    front = cv.polygon([(4.6, 9.3), (16.0, 6.0), (16.0, 10.0), (7.0, 14.0), (4.6, 13.9)])
+    return [part(front, m, "bevel", bevel=0.7, h=0.8, glint=False, inner_line=False),
+            part(left, m, "bevel", bevel=0.7, h=0.8, glint=False, inner_line=False),
+            part(top, m, "bevel", bevel=0.8, h=0.88, inner_line=False),
+            part(cv.stroke((1.0, 6.4), (4.4, 9.0), 0.75), m, "flat", h=0.9, inner_line=False),
+            part(cv.stroke((5.0, 9.0), (13.6, 6.4), 0.75), m, "flat", h=0.9, inner_line=False),
+            part(cv.stroke((4.6, 9.6), (4.6, 12.6), 0.75), m, "flat", h=0.86, inner_line=False)]
 
 
-def emerald(cv, pal):
-    light, mid, dark = pal
-    rings = [
-        ([(6.0, 2.0), (10.0, 2.0), (13.0, 5.0), (13.0, 11.0), (10.0, 14.0), (6.0, 14.0), (3.0, 11.0), (3.0, 5.0)], dark, 0.7),
-        ([(6.4, 3.2), (9.6, 3.2), (11.8, 5.4), (11.8, 10.6), (9.6, 12.8), (6.4, 12.8), (4.2, 10.6), (4.2, 5.4)], mid, 0.8),
-        ([(6.8, 4.4), (9.2, 4.4), (10.6, 5.8), (10.6, 10.2), (9.2, 11.6), (6.8, 11.6), (5.4, 10.2), (5.4, 5.8)], light, 0.9),
-    ]
-    parts = [_flat(cv.polygon(p), cv, c, dark, h, grad=0.25, axis=(-1, -1)) for p, c, h in rings]
-    parts.append(_flat(cv.polygon([(6.9, 4.9), (8.0, 4.9), (6.0, 7.6), (5.9, 6.2)]), cv, (240, 255, 240), light, 0.95))
-    return parts
+def ingot_create(cv, src, m):
+    """Create's taller ingot: same faces, thicker bar."""
+    from handmade.style import part
+    top = cv.polygon([(1.0, 5.8), (12.0, 2.0), (15.0, 5.0), (13.6, 6.5), (5.0, 9.0), (1.0, 6.3)])
+    left = cv.polygon([(1.0, 6.2), (5.0, 9.0), (5.0, 14.0), (3.0, 14.0), (1.0, 12.0)])
+    front = cv.polygon([(5.0, 9.0), (13.6, 6.5), (15.0, 5.0), (15.0, 10.0), (13.5, 11.0), (6.0, 14.0), (5.0, 14.0)])
+    return [part(front, m, "bevel", bevel=0.7, h=0.8, glint=False, inner_line=False),
+            part(left, m, "bevel", bevel=0.7, h=0.8, glint=False, inner_line=False),
+            part(top, m, "bevel", bevel=0.8, h=0.88, inner_line=False),
+            part(cv.stroke((2.4, 6.4), (4.6, 8.6), 0.75), m, "flat", h=0.9, inner_line=False),
+            part(cv.stroke((4.6, 9.4), (4.6, 11.6), 0.75), m, "flat", h=0.86, inner_line=False)]
 
 
-def raw_ore(cv, pal):
-    """Angular rock chunk: faceted planes lit from the top-left, rough surface."""
-    light, mid, dark = pal
-    L, M, D = (np.array(c, float) for c in (light, mid, dark))
-    tone = lambda t: tuple(np.clip(D + (L - D) * t, 0, 255).round())
+def nugget(cv, src, m):
+    """Rounded lump traced from the original, its light pattern kept."""
+    from handmade.style import part, silhouette
+    return [part(silhouette(src, cv, 0.5), m, "post", bevel=0.9, h=0.85)]
+
+
+def diamond(cv, src, m):
+    """Brilliant cut seen from above: table, crown and pavilion facets with
+    straight edges; each facet takes its tone from the original texels it
+    covers (bright upper-left crown, dark right side, lit culet)."""
+    from handmade.style import part
+    body = cv.polygon(_rp([(6.0, 2.0), (10.0, 2.0), (13.0, 5.0), (14.0, 7.0), (14.0, 11.0), (13.0, 13.0), (11.0, 15.0),
+                           (5.0, 15.0), (3.0, 13.0), (2.0, 11.0), (2.0, 7.0), (3.0, 5.0)], 0.4))
     facets = [
-        ([(0.6, 4.6), (2.4, 1.4), (6.6, 1.0), (8.0, 5.6), (3.6, 7.4)], 0.95, 0.95),
-        ([(6.6, 1.0), (10.2, 2.0), (13.6, 3.6), (12.2, 7.0), (8.0, 5.6)], 0.85, 0.92),
-        ([(3.6, 7.4), (8.0, 5.6), (12.2, 7.0), (12.0, 10.6), (8.4, 12.6), (3.6, 12.8)], 0.68, 0.86),
-        ([(0.6, 4.6), (3.6, 7.4), (3.6, 12.8), (0.8, 11.2)], 0.52, 0.8),
-        ([(13.6, 3.6), (15.4, 6.6), (15.6, 11.0), (12.0, 10.6), (12.2, 7.0)], 0.5, 0.8),
-        ([(12.0, 10.6), (15.6, 11.0), (14.6, 14.4), (10.4, 14.8), (8.4, 12.6)], 0.32, 0.74),
+        [(3.0, 5.0), (6.0, 2.0), (5.2, 4.4), (4.6, 7.0), (5.6, 9.8), (2.0, 10.4), (2.0, 7.0)],    # left crown
+        [(6.0, 2.0), (10.0, 2.0), (9.6, 3.6), (5.2, 4.4)],                                        # upper crown
+        [(10.0, 2.0), (13.0, 5.0), (14.0, 7.0), (14.0, 10.2), (10.0, 9.6), (10.4, 6.0), (9.6, 3.6)],  # right crown
+        [(5.2, 4.4), (9.6, 3.6), (10.4, 6.0), (10.0, 9.6), (5.6, 9.8), (4.6, 7.0)],               # table
+        [(2.0, 10.4), (5.6, 9.8), (8.0, 12.4), (5.0, 15.0), (3.0, 13.0), (2.0, 11.0)],            # pavilion left
+        [(5.6, 9.8), (10.0, 9.6), (8.0, 12.4)],                                                   # pavilion centre
+        [(10.0, 9.6), (14.0, 10.2), (14.0, 11.0), (13.0, 13.0), (11.0, 15.0), (8.0, 12.4)],       # pavilion right
+        [(8.0, 12.4), (11.0, 15.0), (5.0, 15.0)],                                                 # culet
     ]
-    rng = np.random.default_rng(11)
-    noise = cv2.GaussianBlur(rng.random((cv.n, cv.n)).astype(np.float32), (0, 0), cv.k * 0.35)
-    noise = (noise - noise.mean()) / (noise.std() + 1e-6)
-    parts = []
-    for poly, t, h in facets:
-        c, hh, m = _flat(cv.polygon(poly), cv, tone(t), dark, h, edge_w=0.25)
-        c = np.clip(c * (1 + 0.06 * noise[..., None]), 0, 1)
-        parts.append((c, hh + 0.015 * noise, m))
+    parts = [part(body, m, "bevel", bevel=0.8, h=0.88)]
+    parts += [part(cv.polygon(f), m, "flat", h=0.9, inner_line=False) for f in facets]
+    star = cv.polygon([(5.6, 3.6), (6.0, 4.6), (7.0, 5.0), (6.0, 5.4), (5.6, 6.4), (5.2, 5.4), (4.2, 5.0), (5.2, 4.6)])
+    parts.append(part(star, m, "flat", h=0.95, inner_line=False, tones=((255, 255, 255), (255, 255, 255), (220, 255, 250))))
     return parts
 
 
-def rod(cv, pal):
-    light, mid, dark = pal
-    # lift the body toward the light tone: pixel-art sticks are drawn very dark
-    body = tuple((np.array(light) * 0.55 + np.array(mid) * 0.45).round())
-    return [_shade_part(cv.stroke((2.7, 13.3), (13.4, 2.6), 2.7), cv, (light, body, dark), 1.15,
-                        axis=((2.7, 13.3), (13.4, 2.6)), grain=True, seed=5)]
+def emerald(cv, src, m):
+    """Step cut: wide bevels round a raised table."""
+    from handmade.style import part
+    outer = cv.polygon([(6.0, 2.0), (10.0, 2.0), (13.0, 5.0), (13.0, 11.0), (10.0, 14.0), (6.0, 14.0), (3.0, 11.0),
+                        (3.0, 5.0)])
+    table = cv.polygon([(6.6, 4.4), (9.4, 4.4), (10.6, 5.8), (10.6, 10.2), (9.4, 11.6), (6.6, 11.6), (5.4, 10.2),
+                        (5.4, 5.8)])
+    return [part(outer, m, "bevel", bevel=2.0, h=0.86),
+            part(table, m, "bevel", bevel=0.6, h=0.92, inner_line=False)]
+
+
+def raw_ore(cv, src, m):
+    """Raw ore chunk: the original's lumps and crevices, traced smoothly."""
+    from handmade.style import part, silhouette
+    return [part(silhouette(src, cv, 0.5), m, "post", bevel=0.8, h=0.85)]
+
+
+def rod(cv, src, m):
+    """A straight bar fitted to the original: its axis and ends from the texels'
+    principal direction, its width from their spread across it."""
+    from handmade.style import part
+    h, w = src.shape[:2]
+    ys, xs = np.nonzero(src[..., 3] > 0.5)
+    pts = np.stack([xs + 0.5, ys + 0.5], 1) * (16.0 / w)
+    c = pts.mean(0)
+    _, _, vt = np.linalg.svd(pts - c, full_matrices=False)
+    u = vt[0]
+    t = (pts - c) @ u
+    across = (pts - c) @ np.array([-u[1], u[0]])
+    width = max(1.2, np.percentile(np.abs(across), 95) * 2 + 16.0 / w)
+    a = tuple(c + u * (t.min() + width / 2 - 0.3))
+    b = tuple(c + u * (t.max() - width / 2 + 0.3))
+    return [part(cv.stroke(a, b, width), m, "cyl", axis=(a, b), grain=1.0 if m == "wood" else 0.0, h=0.8)]
 
 
 METALS = (r"iron|gold|golden|copper|zinc|brass|tin|lead|silver|nickel|aluminum|aluminium|osmium|uranium|"
           r"platinum|tungsten|steel|bronze|electrum|invar|constantan|cobalt|titanium")
 
 ARCHETYPES = [
-    ("ingot", re.compile(r"ingot$"), ingot),
-    ("nugget", re.compile(r"nugget$"), nugget),
-    ("diamond", re.compile(r"^diamond$"), diamond),
-    ("emerald", re.compile(r"^emerald$"), emerald),
-    ("raw_ore", re.compile(r"^raw_(" + METALS + r")$"), raw_ore),
-    ("rod", re.compile(r"^(stick|blaze_rod|breeze_rod)$|^(" + METALS + r")_rod$"), rod),
+    ("ingot", re.compile(r"ingot$"), (ingot_vanilla, ingot_create)),
+    ("nugget", re.compile(r"nugget$"), (nugget,)),
+    ("diamond", re.compile(r"^diamond$"), (diamond,)),
+    ("emerald", re.compile(r"^emerald$"), (emerald,)),
+    ("raw_ore", re.compile(r"^raw_(" + METALS + r")$"), (raw_ore,)),
+    ("rod", re.compile(r"^(stick|blaze_rod|breeze_rod)$|^(" + METALS + r")_rod$"), (rod,)),
 ]
+MIN_IOU = 0.8   # a traced design must cover the original's silhouette this well, or the texture is left alone
 
 
 def archetype_of(path, ns="minecraft"):
     name = path.split("/")[-1].rsplit(".", 1)[0]
-    if not path.startswith("textures/item/") or name.startswith("empty_slot"):
-        return None  # empty_slot_* are the smithing table's ghost outlines
-    for key, pat, fn in ARCHETYPES:
+    if not path.startswith("textures/item/") or name.startswith("empty_slot") or path.count("/") != 2:
+        return None  # empty_slot_* are the smithing table's ghost outlines; sub-folders hold model textures
+    for key, pat, _ in ARCHETYPES:
         if pat.search(name):
             # bare gem names in other mods are their own items (e.g. wrench variants)
             if key in ("diamond", "emerald") and ns != "minecraft":
@@ -190,37 +228,29 @@ def archetype_of(path, ns="minecraft"):
     return None
 
 
+def _iou(parts, cv, src):
+    cover = np.any([p["mask"] for p in parts], 0).astype(np.float32)
+    h, w = src.shape[:2]
+    small = cv2.resize(cover, (w, h), interpolation=cv2.INTER_AREA) >= 0.5
+    orig = src[..., 3] > 0.5
+    return (small & orig).sum() / max((small | orig).sum(), 1)
+
+
 def render(path, src, size):
-    """Hand-made maps for an item texture, coloured from its source."""
+    """Hand-made maps for an item texture, or None when no traced design fits its shape."""
+    from handmade.style import render_item
     name = path.split("/")[-1].rsplit(".", 1)[0]
-    fn = next(f for key, pat, f in ARCHETYPES if pat.search(name))
-    pal = palette_from(src)
-    cv = Canvas(size)
-    parts = fn(cv, pal)
-    col = np.zeros((cv.n, cv.n, 3))
-    h = np.zeros((cv.n, cv.n))
-    cover = np.zeros((cv.n, cv.n), bool)
-    for c, hh, m in parts:
-        col = np.where(m[..., None], c, col)
-        h = np.where(m, hh, h)
-        cover |= m
-    rim, rim_col = _outline(cover, cv, pal[2])
-    col = np.where(rim[..., None], rim_col[None, None, :], col)
-    h = np.where(rim, h - 0.05, h)
-    down = lambda a: cv2.resize(a.astype(np.float32), (size, size), interpolation=cv2.INTER_AREA)
-    alpha = down(cover.astype(np.float32))
-    rgb = np.dstack([down(col[..., i] * cover) for i in range(3)]) / np.maximum(alpha, 1e-4)[..., None]
-    height = down(h * cover) / np.maximum(alpha, 1e-4)
-    m = Material(size)
-    solid = alpha > 0.5
-    m.albedo, m.alpha = np.clip(rgb, 0, 1), alpha
-    m.height = np.where(solid, np.clip(height + (0.99 - height[solid].max()), 0, 0.99), 0.0)
-    f0, sm = material_of(name)
+    variants = next(v for _, pat, v in ARCHETYPES if pat.search(name))
+    m = mat_of(name)
     if name in ("stick",):
-        f0, sm = DIELECTRIC, 0.3
-    m.f0 = np.where(solid, f0, DIELECTRIC).astype(float)
-    m.smooth = np.where(solid, sm, 0.0)
+        m = "wood"
+    elif name in ("blaze_rod", "breeze_rod"):
+        m = "glossy"
+    cv = Canvas(size)
+    best = max(((fn(cv, src, m)) for fn in variants), key=lambda ps: _iou(ps, cv, src))
+    if _iou(best, cv, src) < MIN_IOU:
+        return None
     if name == "blaze_rod":
-        lum = rgb @ LUMW
-        m.emissive = np.clip((lum - 0.45) * 2, 0, 1) * solid
-    return derive(m, edge_wear=0.0, edges="reflect", normal_strength=4.0)
+        for p in best:
+            p["emissive"] = 0.5
+    return render_item(best, cv, src, size)

@@ -107,6 +107,11 @@ def main():
     if "--only" in rest:
         i = rest.index("--only")
         only = set(x for x in rest[i + 1:] if not x.startswith("--"))
+    paths = None
+    if "--paths" in rest:
+        # rebuild just these textures, given as ns:textures/...png
+        i = rest.index("--paths")
+        paths = {tuple(x.split(":", 1)) for x in rest[i + 1:] if not x.startswith("--")}
     if "--jobs" in rest:
         jobs = int(rest[rest.index("--jobs") + 1])
     skip = set()
@@ -123,7 +128,7 @@ def main():
     if "--kind" in rest:
         kinds = {rest[rest.index("--kind") + 1]}
     todo = [t for t in plan if (only is None or t["ns"] in only) and (kinds is None or t["kind"] in kinds)
-            and (t["ns"], t["path"]) not in skip]
+            and (t["ns"], t["path"]) not in skip and (paths is None or (t["ns"], t["path"]) in paths)]
     print(f"{len(todo)} to build, {len(skip)} provided by the hand-built pack", flush=True)
     # biggest first so the pool finishes evenly
     todo.sort(key=lambda t: -t["texels"])
@@ -139,7 +144,7 @@ def main():
                 print(f"{i + 1}/{len(todo)}  {el / 60:.1f} min  eta {el / (i + 1) * (len(todo) - i - 1) / 60:.1f} min  "
                       f"failures {len(log['failures'])}", flush=True)
     os.makedirs(out, exist_ok=True)
-    name = "build_log.json" if only is None and kinds is None else "build_log_partial.json"
+    name = "build_log.json" if only is None and kinds is None and paths is None else "build_log_partial.json"
     json.dump(log, open(os.path.join(out, name), "w"), indent=1)
     print("routes:", log["routes"])
 

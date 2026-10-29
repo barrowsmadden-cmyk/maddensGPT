@@ -128,83 +128,84 @@ def _compose(parts, cv):
 
 
 # ---------------------------------------------------------------- designs ---
-# coordinates in vanilla item pixels (0..16), taken from the vanilla layouts
+# Traced from the vanilla textures: coordinates are texel edges in the 16-unit
+# grid (texel (x, y) spans x..x+1, y..y+1). Parts use the house style
+# (handmade/style.py); their tones come from the original texels they cover.
+
+HEAD_MAT = {"wooden": "wood", "stone": "stone", "iron": "iron", "golden": "gold", "diamond": "gem",
+            "netherite": "dark_metal"}
+
+
+def _rp(pts, r=0.6):
+    from handmade.style import round_poly
+    return round_poly(pts, r)
+
+
+def _handle(cv, top, bottom=(2.8, 14.2), width=2.1):
+    from handmade.style import part
+    return part(cv.stroke(bottom, top, width), "wood", "cyl", axis=(bottom, top), grain=1.0, h=0.7)
+
 
 def sword(cv, mat):
-    pal = PALETTES[mat]
-    tip, base = (15.4, 0.6), (6.4, 9.6)
-    # broad blade (~3px), parallel edges, tapering over the last 3px to the point
-    blade = cv.polygon([(5.3, 8.5), (12.6, 1.2), tip, (14.8, 3.4), (7.5, 10.7)])
-    guard = cv.stroke((2.9, 6.9), (9.1, 13.1), 2.1)
-    grip = cv.stroke((5.2, 10.8), (2.6, 13.4), 2.0)
-    pommel = cv.circle((1.75, 14.25), 1.45)
+    from handmade.style import part
+    m = HEAD_MAT[mat]
+    blade = cv.polygon([(13.0, 0.0), (16.0, 0.0), (16.0, 2.0), (7.75, 10.25), (5.25, 7.75)])
+    fuller = cv.stroke((14.6, 1.4), (7.4, 8.6), 0.9)
+    guard = cv.polygon(_rp([(1.6, 6.8), (3.2, 5.6), (10.4, 12.8), (9.2, 14.4)], 0.5))
+    grip = cv.stroke((5.6, 10.4), (2.4, 13.6), 2.3)
+    pommel = cv.polygon(_rp([(0.0, 13.0), (3.0, 13.0), (3.0, 16.0), (0.0, 16.0)], 0.7))
     return [
-        _shade_part(grip, cv, GRIP, 0.6, axis=((5.0, 11.0), (2.4, 13.6)), grain=True, seed=1),
-        _shade_part(pommel, cv, pal, 0.9),
-        _shade_part(blade, cv, pal, 1.1, axis=(base, tip), fuller=True),
-        _shade_part(guard, cv, pal, 0.7),
+        part(grip, "wood", "cyl", axis=((5.6, 10.4), (2.4, 13.6)), grain=1.0, h=0.7),
+        part(pommel, m, "bevel", bevel=0.9, h=0.75),
+        part(blade, m, "bevel", bevel=1.0, h=0.85),
+        part(fuller, m, "flat", h=0.82, inner_line=False),
+        part(guard, m, "bevel", bevel=0.9, h=0.9),
     ]
 
 
-def handle(cv, p0, p1, width=2.3):
-    return _shade_part(cv.stroke(p0, p1, width), cv, HANDLE, 0.75, axis=(p0, p1), grain=True, seed=2)
-
-
 def pickaxe(cv, mat):
-    pal = PALETTES[mat]
-    head = cv.tapered_curve((4.4, 3.0), (13.7, 2.3), (14.0, 12.0), 3.0, 1.0)
-    return [handle(cv, (2.6, 13.8), (12.0, 4.4)), _shade_part(head, cv, pal, 1.1)]
+    from handmade.style import part
+    # curved head with two pointed tips (left, bottom), thick at the crown behind the handle
+    outer = [(4.4, 3.7), (6.0, 2.1), (9.0, 1.7), (11.6, 1.9), (13.6, 2.6), (14.9, 4.2), (15.4, 6.6), (15.2, 9.4),
+             (14.0, 12.6)]
+    inner = [(12.6, 10.2), (12.3, 7.4), (11.6, 5.6), (9.8, 4.9), (7.4, 4.7)]
+    head = cv.polygon(_rp(outer + inner, 0.35))
+    return [part(head, HEAD_MAT[mat], "bevel", bevel=0.9, h=0.85), _handle(cv, (13.3, 3.7))]
 
 
 def axe(cv, mat):
-    pal = PALETTES[mat]
-    # cutting edge bulges out to the upper left; the head wraps the handle top
-    # fan blade: pointed toe and heel, slightly convex cutting edge, narrow neck
-    edge = [(5.4 + 5.2 * t - 0.7 * math.sin(math.pi * t), 6.6 - 5.8 * t - 0.7 * math.sin(math.pi * t)) for t in np.linspace(0, 1, 14)]
-    head = cv.polygon(edge + [(11.6, 1.9), (12.3, 3.5), (14.0, 4.4), (14.5, 6.6), (12.5, 8.6), (11.0, 7.4), (8.2, 7.3)])
-    return [handle(cv, (2.6, 13.8), (12.6, 3.8)), _shade_part(head, cv, pal, 1.2)]
+    from handmade.style import part
+    # broad blade: convex cutting edge on the upper left, narrowing to a neck, poll behind the handle
+    edge = [(9.2 - 3.4 * t - 1.2 * math.sin(math.pi * t), 0.8 + 6.6 * t - 0.6 * math.sin(math.pi * t))
+            for t in np.linspace(0, 1, 12)]
+    head = cv.polygon(_rp(edge + [(8.0, 7.2), (9.8, 6.6), (11.0, 8.8), (13.2, 8.9), (14.1, 7.6), (14.0, 5.8),
+                                  (12.4, 4.2), (12.0, 2.0), (11.0, 0.9)], 0.45))
+    return [part(head, HEAD_MAT[mat], "bevel", bevel=0.9, h=0.85), _handle(cv, (12.6, 4.6))]
 
 
 def shovel(cv, mat):
-    pal = PALETTES[mat]
-    c, u = np.array([11.9, 4.4]), np.array([1, -1]) / math.sqrt(2)
-    v = np.array([1, 1]) / math.sqrt(2)
-    pts = []
-    for a in np.linspace(-math.pi / 2, math.pi / 2, 18):     # rounded tip
-        pts.append(c + u * (1.0 + 2.6 * math.cos(a)) + v * 2.7 * math.sin(a))
-    pts += [c - u * 2.4 + v * 2.3, c - u * 3.2, c - u * 2.4 - v * 2.3]
-    blade = cv.polygon(pts)
-    return [handle(cv, (2.6, 13.8), (11.2, 5.4)), _shade_part(blade, cv, pal, 1.2)]
+    from handmade.style import part
+    blade = cv.polygon(_rp([(11.0, 2.0), (14.0, 2.0), (15.0, 3.0), (15.0, 6.0), (12.0, 9.0), (11.0, 9.0), (8.0, 6.0),
+                            (8.0, 5.0)], 1.0))
+    return [part(blade, HEAD_MAT[mat], "bevel", bevel=0.9, h=0.85), _handle(cv, (10.2, 6.8), bottom=(3.0, 14.2))]
 
 
 def hoe(cv, mat):
-    pal = PALETTES[mat]
-    head = cv.polygon([(5.6, 1.2), (10.9, 0.9), (13.9, 2.8), (14.4, 5.6), (12.6, 6.3), (11.4, 4.8), (9.1, 3.9), (6.3, 3.9)])
-    return [handle(cv, (2.6, 13.8), (12.6, 3.8)), _shade_part(head, cv, pal, 1.0)]
+    from handmade.style import part
+    head = cv.polygon(_rp([(7.0, 1.0), (10.0, 1.0), (11.0, 2.0), (12.0, 2.6), (13.6, 4.0), (14.0, 5.0), (14.0, 6.0),
+                           (13.0, 7.0), (11.0, 7.0), (10.4, 5.2), (9.0, 5.0), (9.0, 4.2), (7.0, 4.0), (6.0, 3.0),
+                           (6.0, 2.0)], 0.5))
+    return [part(head, HEAD_MAT[mat], "bevel", bevel=0.8, h=0.85), _handle(cv, (12.8, 3.9))]
 
 
 DESIGNS = {"sword": sword, "pickaxe": pickaxe, "axe": axe, "shovel": shovel, "hoe": hoe}
 
 
-def render(tool, mat, size):
-    """Return (albedo RGBA, _n, _s) uint8 maps for e.g. ('pickaxe', 'iron', 64)."""
+def render(tool, mat, size, src):
+    """(albedo RGBA, _n, _s) uint8 maps for e.g. ('pickaxe', 'iron', 64, original texture)."""
+    from handmade.style import render_item
     cv = Canvas(size)
-    col, h, cover = _compose(DESIGNS[tool](cv, mat), cv)
-    down = lambda a: cv2.resize(a.astype(np.float32), (size, size), interpolation=cv2.INTER_AREA)
-    alpha = down(cover.astype(np.float32))
-    rgb = np.dstack([down(col[..., i] * cover) for i in range(3)]) / np.maximum(alpha, 1e-4)[..., None]
-    height = down(h * cover) / np.maximum(alpha, 1e-4)
-    m = Material(size)
-    solid = alpha > 0.5
-    m.albedo = np.clip(rgb, 0, 1)
-    m.alpha = alpha
-    m.height = np.where(solid, np.clip(height + (0.99 - height[solid].max()), 0, 0.99), 0.0)
-    # material per pixel: wood handles stay wood, heads take the tool material
-    wood = (rgb[..., 0] > rgb[..., 2] * 1.3) & (mat != "golden") & (mat != "wooden")
-    is_head = solid & ~wood
-    m.f0 = np.where(is_head, MATERIAL_F0[mat], DIELECTRIC).astype(float)
-    m.smooth = np.where(is_head, MATERIAL_SMOOTH[mat], 0.3) * solid
-    return derive(m, edge_wear=0.0, edges="reflect", normal_strength=4.0)
+    return render_item(DESIGNS[tool](cv, mat), cv, src, size)
 
 
 def items():
