@@ -1,7 +1,7 @@
 """Write the hand-made textures (tools and weapons so far) into the hand-built
 overlay pack, at the item tier size from plan.py.
 
-    python3 build_handmade.py <handbuilt_pack_dir> [size] [src_dir]
+    python3 build_handmade.py <handbuilt_pack_dir> [size] [src_dir] [plan.json]
 """
 import os
 import sys
@@ -14,8 +14,32 @@ from handmade import bricks, tools
 SRC = None  # vanilla source root, for palettes taken from the original textures
 
 
-def main(pack, size=64, src=None):
+def write(pack, ns, rel, maps):
+    base = os.path.join(pack, "assets", ns, rel[:-4])
+    os.makedirs(os.path.dirname(base), exist_ok=True)
+    for suffix, arr in zip(("", "_n", "_s"), maps):
+        Image.fromarray(arr, "RGBA").save(base + suffix + ".png")
+
+
+def main(pack, size=64, src=None, plan=None):
     n = 0
+    if src and plan:
+        import json
+        from handmade import armor, items
+        for t in json.load(open(plan))["plan"]:
+            if t["kind"] != "item" or t["frames"] > 1 or t["w"] != t["h"]:
+                continue
+            if t["ns"] == "minecraft" and any(t["path"] == rel for rel, *_ in tools.items()):
+                continue
+            if items.archetype_of(t["path"], t["ns"]) is not None:
+                renderer = items.render
+            elif armor.armor_of(t["path"], t["ns"]) is not None:
+                renderer = armor.render
+            else:
+                continue
+            img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+            write(pack, t["ns"], t["path"], renderer(t["path"], img, t["w"] * t["scale"]))
+            n += 1
     if src:
         for rel, layout, opts in bricks.textures():
             base = os.path.join(pack, "assets", "minecraft", rel[:-4])
@@ -36,4 +60,4 @@ def main(pack, size=64, src=None):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], *(int(x) for x in sys.argv[2:3]), *sys.argv[3:4])
+    main(sys.argv[1], *(int(x) for x in sys.argv[2:3]), *sys.argv[3:5])
