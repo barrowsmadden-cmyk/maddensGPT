@@ -255,7 +255,10 @@ def remaster_frame(rgba, scale, path, seed=0, block_px=None):
     props = PROPS[cls]
     name = path.split("/")[-1].lower()
     rgb, alpha = rgba[..., :3], rgba[..., 3]
-    opaque = alpha > 0.5
+    # translucent art (stained glass, ice, water) keeps its real alpha; cutout art
+    # (leaves, plants, rope) stays hard-edged
+    translucent = ((alpha > 0.05) & (alpha < 0.95)).mean() > 0.02
+    opaque = alpha > (0.02 if translucent else 0.5)
     labels = material_regions(rgb, opaque)
     lab = srgb_to_lab(rgb)
     labels = merge_speckles(labels, max(4, (h * w) // 48), lab)
@@ -348,8 +351,11 @@ def remaster_frame(rgba, scale, path, seed=0, block_px=None):
     m.porosity = np.full((H, W), float(props["porosity"]))
     if re.search(EMISSIVE, name):
         m.emissive = sstep(0.55, 0.9, lum) * (big >= 0)
-    up_alpha = np.asarray(Image.fromarray((alpha > 0.5).astype(np.uint8) * 255).resize((W, H), Image.NEAREST), float) / 255
-    m.alpha = (big >= 0).astype(float) if (alpha < 0.5).any() else up_alpha
+    if translucent:
+        a = np.asarray(Image.fromarray(alpha.astype(np.float32), "F").resize((W, H), Image.BICUBIC), float)
+        m.alpha = np.clip(a, 0, 1) * (big >= 0)
+    else:
+        m.alpha = (big >= 0).astype(float)
     return m, dict(edge_wear=0.35 if cls == "metal" else 0.15, edges="wrap")
 
 
