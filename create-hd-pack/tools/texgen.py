@@ -145,15 +145,16 @@ def scratches(n, seed, length=(8, 40), width=1, angle=None, size=N):
 class Material:
     """Per-pixel material layers for one texture."""
 
-    def __init__(self):
-        self.albedo = np.zeros((N, N, 3))
-        self.height = np.zeros((N, N))
-        self.smooth = np.zeros((N, N))
-        self.f0 = np.full((N, N), DIELECTRIC, dtype=float)
-        self.porosity = np.zeros((N, N))
-        self.emissive = np.zeros((N, N))
-        self.alpha = np.ones((N, N))
-        self.extra_ao = np.ones((N, N))
+    def __init__(self, h=N, w=None):
+        w = h if w is None else w
+        self.albedo = np.zeros((h, w, 3))
+        self.height = np.zeros((h, w))
+        self.smooth = np.zeros((h, w))
+        self.f0 = np.full((h, w), DIELECTRIC, dtype=float)
+        self.porosity = np.zeros((h, w))
+        self.emissive = np.zeros((h, w))
+        self.alpha = np.ones((h, w))
+        self.extra_ao = np.ones((h, w))
 
     def put(self, mask, albedo=None, height=None, smooth=None, f0=None, porosity=None):
         m = np.clip(mask, 0, 1)
@@ -180,19 +181,20 @@ def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.
     exactly as the neighbouring blocks continue (no mirrored or flattened edge).
     """
     h = mat.height
+    H, W = h.shape
     if pad is not None:
         P, canvas = pad
-        assert canvas.shape == (N + 2 * P, N + 2 * P)
-        assert np.allclose(canvas[P:P + N, P:P + N], h)
+        assert canvas.shape == (H + 2 * P, W + 2 * P)
+        assert np.allclose(canvas[P:P + H, P:P + W], h)
 
         def bl(a, sigma):
             # only height is blurred over the canvas; other maps fall back to reflect
             src = canvas if a is h else np.pad(a, P, mode="reflect")
-            return blur(src, sigma)[P:P + N, P:P + N]
+            return blur(src, sigma)[P:P + H, P:P + W]
 
         cs = blur(canvas, 0.8)
-        dx = ((cs[:, 2:] - cs[:, :-2]) * 0.5)[P:P + N, P - 1:P - 1 + N]
-        dy = ((cs[2:, :] - cs[:-2, :]) * 0.5)[P - 1:P - 1 + N, P:P + N]
+        dx = ((cs[:, 2:] - cs[:, :-2]) * 0.5)[P:P + H, P - 1:P - 1 + W]
+        dy = ((cs[2:, :] - cs[:-2, :]) * 0.5)[P - 1:P - 1 + H, P:P + W]
     elif edges == "wrap":
         bl = blur
         hs = bl(h, 0.8)
@@ -205,7 +207,7 @@ def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.
         hp = np.pad(hs, 1, mode="reflect")
         dx = (hp[1:-1, 2:] - hp[1:-1, :-2]) * 0.5
         dy = (hp[2:, 1:-1] - hp[:-2, 1:-1]) * 0.5
-    s = normal_strength * N / 16.0  # strength expressed per vanilla pixel
+    s = normal_strength * W / 16.0  # strength expressed per vanilla pixel (W px = one block face)
     nx, ny, nz = -dx * s, -dy * s, np.ones_like(h)
     ln = np.sqrt(nx ** 2 + ny ** 2 + nz ** 2)
     nx, ny = nx / ln, ny / ln  # DirectX (Y-): +y points down the image
