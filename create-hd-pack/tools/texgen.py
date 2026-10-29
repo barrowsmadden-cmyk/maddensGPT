@@ -49,8 +49,12 @@ def vnoise(cx, cy, seed, size=N):
 def fbm(cx, cy, octaves, seed, persistence=0.5, size=N):
     total = np.zeros((size, size))
     amp, norm = 1.0, 0.0
+    shifts = _rng(seed + 7919).integers(0, size, (octaves, 2))
     for o in range(octaves):
-        total += amp * vnoise(cx * 2 ** o, cy * 2 ** o, seed + 101 * o, size)
+        # shift each octave by a whole number of pixels (still tiles) so the lattice
+        # lines, where value noise flattens, never line up across octaves
+        octave = vnoise(cx * 2 ** o, cy * 2 ** o, seed + 101 * o, size)
+        total += amp * np.roll(octave, tuple(shifts[o]), axis=(0, 1))
         norm += amp
         amp *= persistence
     return total / norm
@@ -166,23 +170,38 @@ class Material:
             self.porosity = self.porosity + (porosity - self.porosity) * m
 
 
-def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0, edges="wrap"):
+def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0, edges="wrap", pad=None):
     """Turn material layers into (albedo RGBA, _n RGBA, _s RGBA) uint8 arrays.
 
     edges: "wrap" for textures that tile against themselves; "reflect" for
     connected-texture tiles, whose real neighbour differs from the opposite edge.
+    pad: optional (P, canvas), the tile's height with P px of its real neighbours'
+    height around it; normals, AO and edge wear are then read across the seams
+    exactly as the neighbouring blocks continue (no mirrored or flattened edge).
     """
-    if edges == "wrap":
-        bl = blur
-    else:
-        def bl(a, sigma, p=48):
-            return blur(np.pad(a, p, mode="reflect"), sigma)[p:-p, p:-p]
     h = mat.height
-    hs = bl(h, 0.8)
-    if edges == "wrap":
+    if pad is not None:
+        P, canvas = pad
+        assert canvas.shape == (N + 2 * P, N + 2 * P)
+        assert np.allclose(canvas[P:P + N, P:P + N], h)
+
+        def bl(a, sigma):
+            # only height is blurred over the canvas; other maps fall back to reflect
+            src = canvas if a is h else np.pad(a, P, mode="reflect")
+            return blur(src, sigma)[P:P + N, P:P + N]
+
+        cs = blur(canvas, 0.8)
+        dx = ((cs[:, 2:] - cs[:, :-2]) * 0.5)[P:P + N, P - 1:P - 1 + N]
+        dy = ((cs[2:, :] - cs[:-2, :]) * 0.5)[P - 1:P - 1 + N, P:P + N]
+    elif edges == "wrap":
+        bl = blur
+        hs = bl(h, 0.8)
         dx = (np.roll(hs, -1, 1) - np.roll(hs, 1, 1)) * 0.5
         dy = (np.roll(hs, -1, 0) - np.roll(hs, 1, 0)) * 0.5
     else:
+        def bl(a, sigma, p=48):
+            return blur(np.pad(a, p, mode="reflect"), sigma)[p:-p, p:-p]
+        hs = bl(h, 0.8)
         hp = np.pad(hs, 1, mode="reflect")
         dx = (hp[1:-1, 2:] - hp[1:-1, :-2]) * 0.5
         dy = (hp[2:, 1:-1] - hp[:-2, 1:-1]) * 0.5

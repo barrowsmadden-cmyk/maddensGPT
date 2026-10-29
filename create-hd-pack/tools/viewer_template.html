@@ -282,10 +282,10 @@ function buildBlock(entry, mode, depth, segs, wallPos, mats) {
         if (entry.ct) {
           const ctx = faceContext(wallPos, f);
           const i = entry.ct.type === "omni" ? omniIndex(ctx) : ctmIndex(ctx);
-          const tx = i % 8, ty = Math.floor(i / 8);
-          // inset half a texel (1024px sheet) so filtering never samples the neighbouring tile
-          const e = 0.5 / 1024 * 16;
-          mat = end ? mats.endSheet : mats.sheet; uv = [tx * 2 + e, ty * 2 + e, tx * 2 + 2 - e, ty * 2 + 2 - e];
+          // tiles sit in padded cells; map onto the tile inside the gutter
+          const { cell, gutter, size } = entry.ct;
+          const k = 16 / size, x0 = (i % 8) * cell + gutter, y0 = Math.floor(i / 8) * cell + gutter, t = cell - 2 * gutter;
+          mat = end ? mats.endSheet : mats.sheet; uv = [x0 * k, y0 * k, (x0 + t) * k, (y0 + t) * k];
         }
       }
       grp.add(face(f, [1, 1, 1], uv, mat, segs));

@@ -3,7 +3,7 @@ import numpy as np
 from texgen import (N, Material, derive, save, fbm, vnoise, worley, blur, sstep,
                     round_profile, lerp, col, scratches, IRON, COPPER, ALBEDO_METAL, DIELECTRIC)
 from parts import XX, YY, ISOLATED, edge_dist, frame, hex_bolt, rivet, planks, plank_nails
-from ct import omni_tiles, ctm_tiles
+from ct import Ctx, omni_tiles, ctm_tiles
 
 # ------------------------------------------------------------- palettes ---
 ANDESITE = dict(light=col(176, 184, 174), dark=col(112, 120, 113), f0=IRON, smooth=0.48)
@@ -63,6 +63,71 @@ def copper_casing(ctx=ISOLATED):
 CT_CASINGS = {"andesite_casing": andesite_casing, "brass_casing": brass_casing, "copper_casing": copper_casing}
 
 
+# ------------------------------------------------- seam-true normals/AO ---
+PAD = 48  # covers the widest blur in derive() (sigma 14 -> 3 sigma = 42 px)
+ALL_CONNECTED = Ctx(*([True] * 8))
+
+
+def neighbour_ctx(c, side):
+    """A plausible context for the block on `side` of a tile with context c.
+
+    Only the strip of the neighbour within PAD px of the shared edge is used, so
+    unknowns on its far side are set to connected. Fields that touch the shared
+    edge follow from c: e.g. the right neighbour has a top bar exactly when this
+    tile has one or the block above-right is not part of the group.
+    """
+    if side == "right":
+        up, down = c.up and c.topRight, c.down and c.bottomRight
+        return Ctx(up, down, True, True, up and c.up, up, down and c.down, down)
+    if side == "left":
+        up, down = c.up and c.topLeft, c.down and c.bottomLeft
+        return Ctx(up, down, True, True, up, up and c.up, down, down and c.down)
+    if side == "up":
+        left, right = c.left and c.topLeft, c.right and c.topRight
+        return Ctx(True, True, left, right, left, right, left and c.left, right and c.right)
+    left, right = c.left and c.bottomLeft, c.right and c.bottomRight  # down
+    return Ctx(True, True, left, right, left and c.left, right and c.right, left, right)
+
+
+def _height(fn, c, cache):
+    key = (fn.__name__, c)
+    if key not in cache:
+        cache[key] = fn(c)[0].height.copy()
+    return cache[key]
+
+
+def padded_canvas(fn, c, cache):
+    """The tile's height with PAD px of the neighbouring blocks' height around it.
+
+    Connected sides take the real neighbour's edge strip; free sides (the block
+    face ends there) are mirrored as before.
+    """
+    P = PAD
+    cv = np.pad(_height(fn, c, cache), P, mode="reflect")
+    if c.right:
+        cv[P:P + N, P + N:] = _height(fn, neighbour_ctx(c, "right"), cache)[:, :P]
+    if c.left:
+        cv[P:P + N, :P] = _height(fn, neighbour_ctx(c, "left"), cache)[:, N - P:]
+    if c.up:
+        cv[:P, P:P + N] = _height(fn, neighbour_ctx(c, "up"), cache)[N - P:, :]
+    if c.down:
+        cv[P + N:, P:P + N] = _height(fn, neighbour_ctx(c, "down"), cache)[:P, :]
+    full = None
+    for flag, ys, xs, sy, sx in ((c.topLeft, slice(0, P), slice(0, P), slice(N - P, N), slice(N - P, N)),
+                                 (c.topRight, slice(0, P), slice(P + N, None), slice(N - P, N), slice(0, P)),
+                                 (c.bottomLeft, slice(P + N, None), slice(0, P), slice(0, P), slice(N - P, N)),
+                                 (c.bottomRight, slice(P + N, None), slice(P + N, None), slice(0, P), slice(0, P))):
+        if flag:
+            full = _height(fn, ALL_CONNECTED, cache) if full is None else full
+            cv[ys, xs] = full[sy, sx]
+    return cv
+
+
+def tile_maps(fn, c, cache):
+    m, opts = fn(c)
+    return derive(m, pad=(PAD, padded_canvas(fn, c, cache)), **opts)
+
+
 def build_connected(name, outdir):
     """Write <name>_connected.png (+_n, _s): 8x8 tiles of 256px, row-major."""
     fn = CT_CASINGS[name]
@@ -71,9 +136,9 @@ def build_connected(name, outdir):
     # shader reads stray emission or depth from them through mipmaps
     sheets[1][...] = (128, 128, 255, 255)
     sheets[2][...] = (0, DIELECTRIC, 0, 255)
+    cache = {}
     for i, ctx in omni_tiles().items():
-        m, opts = fn(ctx)
-        maps = derive(m, **opts)
+        maps = tile_maps(fn, ctx, cache)
         y, x = (i // 8) * N, (i % 8) * N
         for sh, mp in zip(sheets, maps):
             sh[y:y + N, x:x + N] = mp
@@ -157,10 +222,9 @@ def build_ctm(name, fn, outdir_assets, block_id):
     import os
     folder = f"{outdir_assets}/create/optifine/ctm/{name}"
     os.makedirs(folder, exist_ok=True)
-    tiles = {}
+    tiles, cache = {}, {}
     for i, ctx in ctm_tiles().items():
-        m, opts = fn(ctx)
-        maps = derive(m, **opts)
+        maps = tile_maps(fn, ctx, cache)
         save(str(i), maps, folder)
         tiles[i] = maps
     with open(f"{folder}/{name}.properties", "w") as f:
@@ -244,11 +308,18 @@ SAMPLES = {
 }
 
 
+CONNECTING = {"andesite_casing", "brass_casing", "copper_casing", "industrial_iron_block", "industrial_iron_block_top"}
+
+
 def build(outdir):
     out = {}
     for name, fn in SAMPLES.items():
-        m, opts = fn()
-        maps = derive(m, **opts)
+        if name in CONNECTING:
+            # identical to the "no connections" tile of its connected set
+            maps = tile_maps(fn, ISOLATED, {})
+        else:
+            m, opts = fn()
+            maps = derive(m, **opts)
         save(name, maps, outdir)
         out[name] = maps
         print("built", name)

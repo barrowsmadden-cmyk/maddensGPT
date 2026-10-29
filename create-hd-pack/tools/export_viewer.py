@@ -11,7 +11,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-from ct import CTM_SPRITE_INDEX_MAP
+from ct import CTM_SPRITE_INDEX_MAP, omni_tiles
 from render import tile_view
 
 BLOCKS = [
@@ -69,13 +69,16 @@ def three_maps(a8, n8, s8, compact=False):
     )
 
 
-def half(maps):
-    """Downscale a sheet for the web viewer (256px tiles -> 128px)."""
+VIEW_TILE, GUTTER = 128, 16
+CELL = VIEW_TILE + 2 * GUTTER
+
+
+def _shrink(maps):
+    """256px tile -> 128px for the web viewer, renormalising the normal xy."""
     out = []
     for i, arr in enumerate(maps):
-        im = Image.fromarray(arr, "RGBA").resize((arr.shape[1] // 2, arr.shape[0] // 2), Image.LANCZOS)
-        a = np.asarray(im).copy()
-        if i == 1:  # renormalise the normal xy after filtering
+        a = np.asarray(Image.fromarray(arr, "RGBA").resize((VIEW_TILE, VIEW_TILE), Image.LANCZOS)).copy()
+        if i == 1:
             nx, ny = a[..., 0] / 127.5 - 1, a[..., 1] / 127.5 - 1
             ln = np.maximum(np.hypot(nx, ny), 1)
             a[..., 0] = ((nx / ln + 1) * 127.5).round().astype(np.uint8)
@@ -84,16 +87,26 @@ def half(maps):
     return out
 
 
-def ctm_sheet(folder):
-    """Pack Continuity's 47 tile files into an 8x8 row-major sheet for the viewer."""
-    tiles = {i: load(folder, str(i)) for i in range(47)}
-    n = tiles[0][0].shape[0]
-    sheets = [np.zeros((8 * n, 8 * n, 4), np.uint8) for _ in range(3)]
+def viewer_sheet(tiles):
+    """8x8 cells of CELL px: each tile shrunk on its own and wrapped in a GUTTER-px
+    border of its own edge pixels, so filtering and mipmaps never pull in the
+    next tile (which would draw seams between connected blocks)."""
+    sheets = [np.zeros((8 * CELL, 8 * CELL, 4), np.uint8) for _ in range(3)]
     for i, maps in tiles.items():
-        y, x = (i // 8) * n, (i % 8) * n
-        for sh, mp in zip(sheets, maps):
-            sh[y:y + n, x:x + n] = mp
+        y, x = (i // 8) * CELL, (i % 8) * CELL
+        for sh, mp in zip(sheets, _shrink(maps)):
+            sh[y:y + CELL, x:x + CELL] = np.pad(mp, ((GUTTER, GUTTER), (GUTTER, GUTTER), (0, 0)), mode="edge")
     return sheets
+
+
+def omni_sheet_tiles(texdir, name):
+    sheet = load(texdir, name + "_connected")
+    n = sheet[0].shape[0] // 8
+    return {i: [m[(i // 8) * n:(i // 8 + 1) * n, (i % 8) * n:(i % 8 + 1) * n] for m in sheet] for i in omni_tiles()}
+
+
+def ctm_folder_tiles(folder):
+    return {i: load(folder, str(i)) for i in range(47)}
 
 
 def thumbs(maps):
@@ -134,13 +147,14 @@ def main(texdir, template, out):
         if name in CT:
             ctype, note = CT[name]
             if ctype == "omni":
-                sheet = load(texdir, name + "_connected")
+                tiles = omni_sheet_tiles(texdir, name)
             else:
-                sheet = ctm_sheet(texdir.replace("textures/block", "optifine/ctm/" + name))
-            entry["ct"] = dict(type=ctype, note=note, tex=three_maps(*half(sheet), compact=True))
+                tiles = ctm_folder_tiles(texdir.replace("textures/block", "optifine/ctm/" + name))
+            entry["ct"] = dict(type=ctype, note=note, cell=CELL, gutter=GUTTER, size=8 * CELL,
+                               tex=three_maps(*viewer_sheet(tiles), compact=True))
             if name in ENDS:
-                end = ctm_sheet(texdir.replace("textures/block", "optifine/ctm/" + ENDS[name]))
-                entry["ct"]["endTex"] = three_maps(*half(end), compact=True)
+                end = ctm_folder_tiles(texdir.replace("textures/block", "optifine/ctm/" + ENDS[name]))
+                entry["ct"]["endTex"] = three_maps(*viewer_sheet(end), compact=True)
         data[name] = entry
     html = (open(template).read().replace("/*__TEX__*/null", json.dumps(data))
             .replace("/*__CTM_MAP__*/null", json.dumps(CTM_SPRITE_INDEX_MAP)))
