@@ -51,6 +51,38 @@ def thumb_pair(src, pack, t, size=128):
             uri(hd.convert("RGB"), quality=85), w)
 
 
+CASINGS = {"andesite_casing", "brass_casing", "copper_casing", "industrial_iron_block", "brass_block"}
+MODEL_SHOWCASE = """item_vault fluid_tank/block_single_window gearbox/block encased_fan/block mechanical_press/block
+mechanical_mixer/block basin/block millstone/block depot/block deployer/horizontal chute/block smart_chute/block
+spout/block item_drain mechanical_pump/block mechanical_saw/horizontal mechanical_drill/block mechanical_crafter/block
+steam_engine/block weighted_ejector/block cogwheel large_cogwheel windmill_bearing mechanical_bearing clutch/block
+gearshift/block encased_chain_drive/single fluid_valve/block_horizontal_open funnel/block_horizontal
+belt_tunnel/window cart_assembler/block packager/block linear_chassis rope_pulley/block content_observer/block
+threshold_switch/block_wall portable_storage_interface/block sequenced_gearshift/idle copper_tiles
+weathered_copper_shingles red_postbox_open yellow_toolbox red_table_cloth seat rose_quartz_lamp metal_girder/block_x
+copper_scaffolding refined_radiance_casing shadow_steel_casing track_station/block""".split()
+
+
+def model_cards(src_assets, pack_assets, size=128):
+    """Create's machines rendered on their models: original textures | HD."""
+    from mcmodel import render
+    cards = []
+    for m in MODEL_SHOWCASE:
+        mid = "create:block/" + m
+        try:
+            a = render(mid, src_assets, src_assets, size * 2)
+            b = render(mid, src_assets, [pack_assets], size * 2)
+        except Exception:
+            continue
+        def card(img):
+            bg = Image.new("RGBA", img.size, (62, 86, 110, 255))
+            bg.alpha_composite(img)
+            return bg.resize((size, size), Image.LANCZOS)
+        cards.append(dict(name=m.replace("/block", "").replace("/", " "), kind="model", tier="block", px=256,
+                          orig=uri(card(a), quality=88), hd=uri(card(b), quality=88)))
+    return cards
+
+
 def main(src, plan_path, pack, template, out, per_mod=12):
     plan = json.load(open(plan_path))["plan"]
     by_mod = defaultdict(list)
@@ -71,6 +103,9 @@ def main(src, plan_path, pack, template, out, per_mod=12):
     for t in plan:
         if f"{t['ns']}/{t['path']}" not in hand:
             continue
+        if t["kind"] == "block" and t["ns"] == "create" and "/vault/" not in t["path"] and \
+                os.path.basename(t["path"])[:-4] not in CASINGS:
+            continue                       # shown on their models below
         if t["kind"] == "block":
             g = "Hand-made: blocks"
         elif t["path"].endswith("bucket.png"):
@@ -80,6 +115,9 @@ def main(src, plan_path, pack, template, out, per_mod=12):
         else:
             g = "Hand-made: vanilla items"
         groups[g].append(t)
+    mc = model_cards(os.path.join(src, "assets"), os.path.join(pack, "assets"))
+    mods.append(dict(mod="Hand-made: Create machines (on their models)", count=len(mc), cards=mc))
+    print("models", len(mc))
     for g in ("Hand-made: blocks", "Hand-made: Create & addon items", "Hand-made: vanilla items",
               "Hand-made: buckets (sample)"):
         feat = sorted(groups[g], key=lambda t: (t["ns"], t["path"]))

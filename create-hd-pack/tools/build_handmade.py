@@ -26,9 +26,18 @@ def main(pack, size=64, src=None, plan=None):
     if src and plan:
         import json
         from handmade import armor, items
-        from handmade import buckets, create_items, glass, rocks, storage, surfaces
+        from handmade import buckets, create_blocks, create_items, glass, rocks, storage, surfaces
         buckets.prepare(os.path.join(src, "assets"))
+        from mcmodel import texture_usage
+        create_blocks.ROOT = os.path.join(src, "assets")
+        plan_list = json.load(open(plan))["plan"]
+        create_blocks.register_machines(plan_list, texture_usage(os.path.join(src, "assets"), "create"))
         for t in json.load(open(plan))["plan"]:
+            if t["kind"] == "block" and t["frames"] == 1 and create_blocks.design_of(t["path"], t["ns"]):
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                write(pack, t["ns"], t["path"], create_blocks.render(t["path"], img))
+                n += 1
+                continue
             if t["kind"] == "block" and t["frames"] == 1 and rocks.rock_of(t["path"], t["ns"]):
                 img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
                 write(pack, t["ns"], t["path"], rocks.render(t["path"], img, t["w"] * t["scale"], t["ns"]))
