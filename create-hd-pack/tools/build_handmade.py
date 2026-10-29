@@ -26,7 +26,23 @@ def main(pack, size=64, src=None, plan=None):
     if src and plan:
         import json
         from handmade import armor, items
+        from handmade import glass, storage, surfaces
         for t in json.load(open(plan))["plan"]:
+            if t["kind"] == "block" and t["frames"] == 1 and storage.storage_of(t["path"], t["ns"]):
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                write(pack, t["ns"], t["path"], storage.render(t["path"], img, t["w"] * t["scale"], t["ns"]))
+                n += 1
+                continue
+            if t["kind"] == "block" and t["frames"] == 1 and glass.glass_of(t["path"], t["ns"]):
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                write(pack, t["ns"], t["path"], glass.render(t["path"], img, t["w"] * t["scale"]))
+                n += 1
+                continue
+            if t["kind"] == "block" and t["frames"] == 1 and surfaces.surface_of(t["path"], t["ns"]):
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                write(pack, t["ns"], t["path"], surfaces.render(t["path"], img, t["w"] * t["scale"], t["ns"]))
+                n += 1
+                continue
             if t["kind"] != "item" or t["frames"] > 1 or t["w"] != t["h"]:
                 continue
             if t["ns"] == "minecraft" and any(t["path"] == rel for rel, *_ in tools.items()):
