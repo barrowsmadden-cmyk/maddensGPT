@@ -73,7 +73,7 @@ for (const m of DATA) {
     card.querySelector(".orig").src = c.orig; card.querySelector(".orig").alt = c.name + " (original)";
     card.querySelector(".name").textContent = c.name;
     const tag = card.querySelector(".tag"); tag.textContent = c.tier; if (c.tier === "hero") tag.classList.add("hero");
-    card.querySelector(".meta span:last-child").textContent = c.kind + " · " + c.px + "px";
+    card.querySelector(".meta span:last-child").textContent = (c.kind === c.tier ? "" : c.kind + " · ") + c.px + "px";
     grid.appendChild(card);
   }
   sec.append(h, grid); main.appendChild(sec);

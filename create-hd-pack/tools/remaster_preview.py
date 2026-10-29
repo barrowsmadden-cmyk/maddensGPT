@@ -23,6 +23,12 @@ def main(src_root, dest, scale, rels):
         t = time.time()
         fam = family_of(rel)
         if fam:
+            try:
+                src = load_rgba(f"{src_root}/{rel}")
+                generate(rel, src, src.shape[1] * scale, seed=0)
+            except ValueError:
+                fam = None
+        if fam:
             src = load_rgba(f"{src_root}/{rel}")
             m, opts = generate(rel, src, src.shape[1] * scale, seed=zlib.crc32(rel.encode()) % 10000)
             maps = derive(m, **opts)

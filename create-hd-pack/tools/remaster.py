@@ -23,6 +23,10 @@ from texgen import (Material, derive, fbm, blur, sstep, round_profile, lerp, scr
 # ----------------------------------------------------------- materials ---
 # keyword -> material class, first match wins (order matters)
 CLASS_RULES = [
+    # designed patterns that happen to contain a material word: keep their shapes
+    ("generic", r"glazed|target|chiseled|carved|lamp|_on\b|furnace_front|dispenser|dropper|observer|piston|"
+                r"command_block|jigsaw|structure_block|beehive_front|composter|lectern|loom|smithing|stonecutter|"
+                r"cartography|fletching|crafter|bookshelf"),
     ("glass", r"glass|pane|crystal(?!_lamp)|amethyst_block|ice\b|_ice"),
     ("ore", r"_ore\b|_ore_|ore$"),
     ("metal", r"iron|gold|copper|brass|zinc|steel|netherite|chain|anvil|casing|rail|cannon|"
@@ -55,6 +59,10 @@ PROPS = {  # smoothness range, f0, porosity/SSS, micro-relief strength
 # natural materials read as surface texture even where the pixel art looks flat;
 # designed materials (glass, metal, machines) keep their clean shapes
 NATURAL_PRIOR = {"stone": 0.9, "ore": 0.9, "plant": 0.8, "food": 0.8, "fabric": 0.75, "wood": 0.6}
+# man-made patterns keep their layout even when made of stone or wood
+DESIGNED = re.compile(r"brick|tile|cut_|_cut|polished|smooth|chiseled|pillar|herringbone|paving|pavement|"
+                      r"carved|slab|stairs|panel|frame|trim|mosaic|checker|pattern|engraved|layered|"
+                      r"tiles|block_(top|side|bottom)|_side$|_top$|_bottom$|_front|_back|_end$")
 METAL_IDS = [(r"gold", GOLD), (r"copper", COPPER), (r"iron|chain|anvil|cauldron|hopper|rail", IRON)]
 
 
@@ -262,7 +270,13 @@ def remaster_frame(rgba, scale, path, seed=0, block_px=None):
     labels = material_regions(rgb, opaque)
     lab = srgb_to_lab(rgb)
     labels = merge_speckles(labels, max(4, (h * w) // 48), lab)
-    big = upscale_regions(labels, scale)
+    # clean shapes: straight edges and true curves where the source used staircases
+    from vectorize import vector_labels
+    big, _ = vector_labels(labels, scale)
+    if (alpha < 0.5).any() and not translucent:
+        from vectorize import coverage
+        sil = coverage(opaque, (h * scale, w * scale), scale)
+        big = np.where(sil >= 0.5, big, -1)
     smooth_col = region_colour(rgb, labels, big, scale)
     m = Material(H, W)
 
@@ -309,7 +323,8 @@ def remaster_frame(rgba, scale, path, seed=0, block_px=None):
         if i < 0:
             continue
         spread = lab[labels == i].std(0).mean() if (labels == i).any() else 0.0
-        noisy[big == i] = max(sstep(2.0, 7.0, spread), NATURAL_PRIOR.get(cls, 0.0))
+        prior = 0.0 if DESIGNED.search(name) else NATURAL_PRIOR.get(cls, 0.0)
+        noisy[big == i] = max(sstep(2.0, 7.0, spread) * (0.4 if DESIGNED.search(name) else 1.0), prior)
     noisy = blur_pad(noisy, vp * 0.3)
     col = lerp(smooth_col, resyn, noisy)
     lum = col @ np.array([0.2126, 0.7152, 0.0722])
@@ -368,4 +383,125 @@ def remaster(src_path, scale, rel_path, seed=0):
     for fi, fr in enumerate(frames):
         m, opts = remaster_frame(fr, scale, rel_path, seed=seed)
         outs.append(derive(m, **opts))
+    return [np.concatenate([o[k] for o in outs], 0) for k in range(3)]
+
+
+# ------------------------------------------------------------- items ---
+
+def scale2x(img):
+    """EPX / Scale2x on an RGBA array: doubles size, keeps hard pixel-art edges
+    but turns staircases into clean diagonals. Equality is exact colour match."""
+    h, w = img.shape[:2]
+    p = np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="edge")
+    P = p[1:-1, 1:-1]
+    A, B, C, D = p[:-2, 1:-1], p[1:-1, 2:], p[1:-1, :-2], p[2:, 1:-1]  # up, right, left, down
+    eq = lambda x, y: (x == y).all(-1)
+    out = np.zeros((h * 2, w * 2, img.shape[2]), img.dtype)
+    c1 = eq(C, A) & ~eq(C, D) & ~eq(A, B)
+    c2 = eq(A, B) & ~eq(A, C) & ~eq(B, D)
+    c3 = eq(D, C) & ~eq(D, B) & ~eq(C, A)
+    c4 = eq(B, D) & ~eq(B, A) & ~eq(D, C)
+    out[0::2, 0::2] = np.where(c1[..., None], A, P)
+    out[0::2, 1::2] = np.where(c2[..., None], B, P)
+    out[1::2, 0::2] = np.where(c3[..., None], C, P)
+    out[1::2, 1::2] = np.where(c4[..., None], D, P)
+    return out
+
+
+def _part_colour(src_rgb, labels, i):
+    """A part's flat base colour: the median of its source colours, nudged toward
+    the lighter half (pixel art spends many pixels on shadow)."""
+    cols = src_rgb[labels == i]
+    if len(cols) == 0:
+        return np.array([0.5, 0.5, 0.5])
+    lum = cols @ np.array([0.2126, 0.7152, 0.0722])
+    upper = cols[lum >= np.median(lum)]
+    return np.median(upper, 0)
+
+
+def stylize(rgb_src, alpha_src, scale, rel_path):
+    """Clean HD item art: vector parts, each a flat colour with a soft lit
+    gradient and highlight, thin dark seams between parts and a bold outline.
+    Returns (albedo, alpha, height, part labels)."""
+    from vectorize import vectorize, part_labels
+    rgba = np.dstack([rgb_src, alpha_src])
+    # few, big parts (blade / guard / handle): specks under 4px fold in unless they
+    # differ strongly; shading levels of one material become one part
+    merges = ((2, 45.0), (4, 30.0), (6, 16.0))
+    _, alpha, big, _ = vectorize(rgba, scale, max_regions=5, merges=merges)
+    H, W = alpha.shape
+    solid = alpha > 0.5
+    lab_src = part_labels(rgb_src, alpha_src > 0.5, 5, merges)
+    ids = [i for i in np.unique(big) if i >= 0]
+    radius = max(3, int(scale * 1.6))
+    d_part = dist_to_edge(np.where(solid, big, -1), radius + 1)
+    dome = round_profile(d_part, radius) * solid
+    gy, gx = np.gradient(blur_pad(dome, scale * 0.4))
+    n = np.dstack([-gx * scale * 1.5, -gy * scale * 1.5, np.ones_like(gx)])
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    light = np.array([-0.55, -0.6, 0.58]); light /= np.linalg.norm(light)
+    shade = np.clip(n @ light, 0, 1)
+    col = np.zeros((H, W, 3))
+    bases = {}
+    for i in ids:
+        bases[i] = _part_colour(rgb_src, lab_src, i) if (lab_src == i).any() else rgb_src[alpha_src > 0.5].mean(0)
+        sel = big == i
+        tone = 0.84 + 0.22 * shade + 0.1 * sstep(0.7, 0.98, dome)  # flat body, soft light, highlight
+        col[sel] = np.clip(bases[i][None, :] * tone[sel][:, None], 0, 1)
+    # seams only between parts that really differ (blade vs handle), plus a bold
+    # silhouette outline; both are darker shades of the part
+    seam_w = max(1.0, scale * 0.28)
+    outline_w = max(1.5, scale * 0.6)
+    d_sil = dist_to_edge(np.where(solid, 0, -1), int(outline_w) + 2)
+    group = np.full(big.shape, -1)
+    reps = []
+    for i in ids:
+        lab_i = srgb_to_lab(bases[i][None, None, :])[0, 0]
+        g = next((k for k, l in enumerate(reps) if np.linalg.norm(l - lab_i) < 22), None)
+        if g is None:
+            reps.append(lab_i)
+            g = len(reps) - 1
+        group[big == i] = g
+    d_group = dist_to_edge(np.where(solid, group, -1), int(seam_w) + 2)
+    seam = (d_group < seam_w) & solid & (d_sil >= outline_w)
+    outline = (d_sil < outline_w) & solid
+    col = np.where(seam[..., None], col * 0.55, col)
+    col = np.where(outline[..., None], col * 0.32, col)
+    height = np.where(solid, 0.62 + 0.3 * dome - 0.08 * seam - 0.1 * outline * (1 - d_sil / outline_w), 0.0)
+    return col, alpha, height, big
+
+
+def remaster_item(src_path, scale, rel_path, seed=0):
+    """Items: redrawn as clean HD art (see stylize), with PBR materials by name."""
+    src = np.asarray(Image.open(src_path).convert("RGBA"))
+    h, w = src.shape[:2]
+    frames = [src] if h <= w else [src[i * w:(i + 1) * w] for i in range(h // w)]
+    outs = []
+    for fr in frames:
+        f = fr.astype(float) / 255
+        rgb, alpha, height, big = stylize(f[..., :3], f[..., 3], scale, rel_path)
+        H, W = alpha.shape
+        solid = alpha > 0.5
+        lum = rgb @ np.array([0.2126, 0.7152, 0.0722])
+        cls = classify(rel_path)
+        props = PROPS[cls]
+        m = Material(H, W)
+        m.albedo, m.alpha = rgb, alpha
+        m.height = np.clip(height + ((0.99 - height[solid].max()) if solid.any() else 0) * solid, 0, 0.99)
+        s_lo, s_hi = props["smooth"]
+        m.smooth = (s_lo + (s_hi - s_lo) * np.clip(lum * 1.2, 0, 1)) * solid
+        name = rel_path.split("/")[-1].lower()
+        if cls == "metal" or re.search(r"ingot|nugget|sword|pickaxe|axe|shovel|hoe|helmet|chestplate|leggings|boots|wrench|"
+                                        r"sheet|plate|rod|gear|key|bucket|shears|compass|clock|spyglass", name):
+            metal_id = next((v for pat, v in METAL_IDS if re.search(pat, name)), ALBEDO_METAL)
+            sat = rgb.max(-1) - rgb.min(-1)
+            # wood handles stay wood: brown, saturated parts are not metal
+            woody = (rgb[..., 0] > rgb[..., 2] * 1.25) & (sat > 0.18) & (metal_id not in (GOLD, COPPER))
+            metallic = solid & (lum > 0.15) & ~woody
+            m.f0 = np.where(metallic, metal_id, DIELECTRIC).astype(float)
+            m.smooth = np.where(metallic, np.maximum(m.smooth, 0.62), m.smooth)
+        m.porosity = np.full((H, W), float(min(props["porosity"], 64)))
+        if re.search(EMISSIVE, name):
+            m.emissive = sstep(0.6, 0.9, lum) * solid
+        outs.append(derive(m, edge_wear=0.0, edges="reflect", normal_strength=4.0))
     return [np.concatenate([o[k] for o in outs], 0) for k in range(3)]

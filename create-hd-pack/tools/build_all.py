@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 from families import family_of, generate, load_rgba
-from remaster import remaster
+from remaster import remaster, remaster_item
 from texgen import derive
 
 
@@ -71,11 +71,20 @@ def work(args):
     err = None
     try:
         fam = family_of(rel)
-        if fam and t["frames"] == 1 and t["w"] == t["h"]:
-            route = "family:" + fam
-            src_img = load_rgba(src_path)
-            m, opts = generate(rel, src_img, t["w"] * t["scale"], seed=seed)
-            maps = derive(m, **opts)
+        maps = None
+        if fam and t["kind"] == "block" and t["frames"] == 1 and t["w"] == t["h"]:
+            try:
+                src_img = load_rgba(src_path)
+                m, opts = generate(rel, src_img, t["w"] * t["scale"], seed=seed)
+                maps = derive(m, **opts)
+                route = "family:" + fam
+            except ValueError:
+                maps = None  # layout not recognised (e.g. no mortar grid): remaster it
+        if maps is not None:
+            pass
+        elif t["kind"] == "item":
+            route = "item"
+            maps = remaster_item(src_path, t["scale"], rel, seed=seed)
         else:
             maps = remaster(src_path, t["scale"], rel, seed=seed)
     except Exception:
@@ -110,7 +119,11 @@ def main():
                     rel = os.path.relpath(os.path.join(root, f), hb).split(os.sep)
                     skip.add((rel[0], "/".join(rel[1:])))
     plan = json.load(open(plan_path))["plan"]
-    todo = [t for t in plan if (only is None or t["ns"] in only) and (t["ns"], t["path"]) not in skip]
+    kinds = None
+    if "--kind" in rest:
+        kinds = {rest[rest.index("--kind") + 1]}
+    todo = [t for t in plan if (only is None or t["ns"] in only) and (kinds is None or t["kind"] in kinds)
+            and (t["ns"], t["path"]) not in skip]
     print(f"{len(todo)} to build, {len(skip)} provided by the hand-built pack", flush=True)
     # biggest first so the pool finishes evenly
     todo.sort(key=lambda t: -t["texels"])
@@ -126,7 +139,8 @@ def main():
                 print(f"{i + 1}/{len(todo)}  {el / 60:.1f} min  eta {el / (i + 1) * (len(todo) - i - 1) / 60:.1f} min  "
                       f"failures {len(log['failures'])}", flush=True)
     os.makedirs(out, exist_ok=True)
-    json.dump(log, open(os.path.join(out, "build_log.json"), "w"), indent=1)
+    name = "build_log.json" if only is None and kinds is None else "build_log_partial.json"
+    json.dump(log, open(os.path.join(out, name), "w"), indent=1)
     print("routes:", log["routes"])
 
 

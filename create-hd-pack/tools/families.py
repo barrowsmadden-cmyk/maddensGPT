@@ -326,6 +326,73 @@ def cobble(src, size, seed=0):
     return m, dict(edge_wear=0.1, ao_strength=1.3)
 
 
+# ------------------------------------------------------------ bricks ---
+
+def brick_mortar(src):
+    """Mortar mask from the source: cluster the colours, then pick the cluster
+    (or the two darkest/lightest clusters together) that runs along whole rows,
+    i.e. the bed joints. None if the texture has no mortar grid."""
+    from remaster import material_regions
+    rgb = src[..., :3]
+    opaque = src[..., 3] > 0.5
+    h, w = opaque.shape
+    lum = rgb @ LUM
+    for k in (2, 3, 4):
+        labels = material_regions(rgb, opaque, max_regions=k)
+        ids = [i for i in np.unique(labels) if i >= 0]
+        cands = [labels == i for i in ids]
+        by_lum = sorted(ids, key=lambda i: lum[labels == i].mean())
+        if len(by_lum) >= 3:
+            cands += [(labels == by_lum[0]) | (labels == by_lum[1]), (labels == by_lum[-1]) | (labels == by_lum[-2])]
+        best = None
+        for m in cands:
+            rows = (m.mean(1) >= 0.7).sum()
+            frac = m.mean()
+            if 2 <= rows <= h // 2 and 0.08 <= frac <= 0.45:
+                score = rows - abs(frac - 0.25) * 4
+                if best is None or score > best[0]:
+                    best = (score, m)
+        if best is not None:
+            return best[1] & opaque
+    return None
+
+
+def bricks(src, size, seed=0):
+    from vectorize import coverage
+    rgb = src[..., :3]
+    mortar = brick_mortar(src)
+    if mortar is None:
+        raise ValueError("no mortar grid")
+    h, w = mortar.shape
+    s = size / w
+    brick_cov = coverage(~mortar, (size, size), s if s == int(s) else int(round(s)))
+    if brick_cov.shape != (size, size):
+        brick_cov = np.asarray(Image.fromarray(brick_cov.astype(np.float32)).resize((size, size), Image.BILINEAR))
+    brick = brick_cov > 0.5
+    n, comp = __import__("cv2").connectedComponents(brick.astype(np.uint8), connectivity=4)
+    r = _rng(seed + 40)
+    tones = r.uniform(-0.3, 0.3, n + 1)
+    # distance to mortar for the bevel (capped)
+    from remaster import dist_to_edge
+    bevel = 0.55 * s
+    d = dist_to_edge(np.where(brick, 0, -1), int(bevel) + 2)
+    rough = fbm(18, 18, 5, seed + 41, size=size)
+    pits = 1 - sstep(0, 0.35 * s, worley(int((size / s) ** 2 * 0.25) + 4, seed + 42, size, jitter=0.9))
+    face = round_profile(d, bevel) * brick
+    height = np.where(brick, 0.6 + 0.32 * face + (rough - 0.5) * 0.06 - pits * 0.05, 0.28 + (rough - 0.5) * 0.05)
+    field = tones[comp] + (rough - 0.5) * 0.9 - pits * 0.4 + face * 0.2
+    lum = rgb @ LUM
+    brick_cols = rgb[~mortar & (src[..., 3] > 0.5)]
+    mortar_cols = rgb[mortar]
+    col = rank_map(field, brick_cols, brick)
+    col = np.where(brick[..., None], col, rank_map(rough, mortar_cols, ~brick))
+    m = Material(size)
+    m.albedo, m.height = col, np.clip(height, 0.02, 1)
+    m.smooth = np.where(brick, 0.25 + face * 0.08, 0.1)
+    m.porosity = np.where(brick, 35.0, 55.0)
+    return m, dict(edge_wear=0.1, ao_strength=1.3)
+
+
 # ------------------------------------------------------------ leaves ---
 
 def leaves(src, size, seed=0):
@@ -378,6 +445,8 @@ FAMILIES = [
     ("log_top", re.compile(r"(_log|_stem|_wood|_hyphae)_top$|log_top$|stem_top$")),
     ("planks", re.compile(r"planks$")),
     ("cobble", re.compile(r"cobblestone$|^cobbled_|mossy_cobblestone$")),
+    # bricks: generator kept but not routed; mortar detection is unreliable on mod
+    # bricks, so patterned blocks go through the vector remaster instead
     ("bark", re.compile(r"(_log|_stem)$")),
 ]
 
@@ -403,6 +472,8 @@ def generate(path, src, size, seed=0):
         m, opts = cobble(src, size, seed)
     elif fam == "leaves":
         m, opts = leaves(src, size, seed)
+    elif fam == "bricks":
+        m, opts = bricks(src, size, seed)
     else:
         raise KeyError(path)
     # the block face is the highest point: shift so the top sits just under 1.0
