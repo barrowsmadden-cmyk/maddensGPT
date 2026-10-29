@@ -1,0 +1,341 @@
+<title>Create HD Block Samples</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: workbench — a large 3D viewport with a side rail of block picker, light controls and the raw LabPBR maps */
+:root {
+  --bg: #16161a; --panel: #1f1f24; --line: #34343c; --fg: #ecebe6; --muted: #a3a29b;
+  --brass: #e3b45a; --brass-ink: #241a08; --stage: #0f0f12;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #efede7; --panel: #f8f7f3; --line: #d6d3ca; --fg: #1d1c19; --muted: #5f5d55;
+  --brass: #9a6a12; --brass-ink: #fffaf0; --stage: #24242a; color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #efede7; --panel: #f8f7f3; --line: #d6d3ca; --fg: #1d1c19; --muted: #5f5d55;
+  --brass: #9a6a12; --brass-ink: #fffaf0; --stage: #24242a; color-scheme: light; }
+
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 20px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 18px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; }
+h1 { font: 800 clamp(30px, 4.4vw, 46px)/1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; text-transform: uppercase; }
+h1 span { color: var(--brass); }
+.spec { font: 500 12px/1.4 var(--mono); color: var(--muted); letter-spacing: .04em; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: relative; background: var(--stage); border-radius: 6px; overflow: hidden; aspect-ratio: 4 / 3; max-width: 100%; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.stage canvas:active { cursor: grabbing; }
+.hint { position: absolute; left: 12px; bottom: 10px; font: 12px var(--mono); color: #c9c7bd; opacity: .75; pointer-events: none; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; font: 500 13px var(--mono); color: #c9c7bd; }
+.rail { display: grid; gap: 16px; min-width: 0; }
+.group { display: grid; gap: 8px; }
+.label { font: 600 11px/1 var(--body); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.blocks button, .seg button { font: 500 14px var(--body); color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: 8px 10px; text-align: left; cursor: pointer; }
+.blocks button[aria-pressed="true"], .seg button[aria-pressed="true"] { background: var(--brass); color: var(--brass-ink); border-color: var(--brass); }
+.blocks button:focus-visible, .seg button:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg button { flex: 1 1 auto; text-align: center; }
+.row { display: grid; grid-template-columns: 92px 1fr 42px; align-items: center; gap: 10px; font-size: 14px; }
+.row output { font: 12px var(--mono); color: var(--muted); text-align: right; }
+input[type=range] { width: 100%; accent-color: var(--brass); }
+.maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.maps figure { margin: 0; display: grid; gap: 4px; }
+.maps img { width: 100%; aspect-ratio: 1; image-rendering: auto; border-radius: 3px; border: 1px solid var(--line); }
+.maps figcaption { font: 11px var(--mono); color: var(--muted); }
+.meta { font: 12px/1.6 var(--mono); color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; overflow-wrap: anywhere; }
+.meta b { color: var(--fg); font-weight: 500; }
+.lit { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: start; }
+.lit img { width: 100%; border-radius: 3px; border: 1px solid var(--line); }
+.lit p { margin: 0; font-size: 13.5px; color: var(--muted); }
+footer { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Create <span>HD</span> Block Samples</h1>
+    <div class="spec">256×256 · LabPBR 1.3 · _n + _s · procedurally built</div>
+  </header>
+
+  <div class="main">
+    <div class="stage" id="stage">
+      <canvas id="view" aria-label="3D preview of the selected block"></canvas>
+      <div class="loading" id="loading">Loading textures…</div>
+      <div class="hint">drag to orbit · scroll to zoom</div>
+    </div>
+
+    <aside class="rail">
+      <div class="group">
+        <div class="label">Block</div>
+        <div class="blocks" id="blocks"></div>
+      </div>
+      <div class="group">
+        <div class="label">Rendering</div>
+        <div class="seg" id="mode">
+          <button type="button" data-v="pbr" aria-pressed="true">Full LabPBR</button>
+          <button type="button" data-v="flat" aria-pressed="false">Albedo only</button>
+        </div>
+        <div class="seg" id="layout">
+          <button type="button" data-v="one" aria-pressed="true">Single block</button>
+          <button type="button" data-v="wall" aria-pressed="false">3×3 wall</button>
+        </div>
+        <div class="row"><label for="sun">Sun angle</label><input id="sun" type="range" min="0" max="360" value="35"><output id="sunv">35°</output></div>
+        <div class="row"><label for="elev">Sun height</label><input id="elev" type="range" min="5" max="85" value="38"><output id="elevv">38°</output></div>
+        <div class="row"><label for="depth">POM depth</label><input id="depth" type="range" min="0" max="100" value="60"><output id="depthv">60%</output></div>
+      </div>
+      <div class="group">
+        <div class="label">Texture files</div>
+        <div class="maps" id="maps"></div>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="group">
+        <div class="label">Offline shader check</div>
+        <div class="lit"><img id="litimg" alt="Face-on render of the selected texture under a raking light"><p>Face-on render from the pack's own LabPBR decoder with height-field self-shadowing, the way a shader like BSL or Complementary reads the files.</p></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer>Displacement here stands in for parallax occlusion mapping, which shader packs apply in-game. Textures are original procedural work styled after a clean HD look; nothing is copied from Create's or Prime's art.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const DATA = /*__TEX__*/null;
+const $ = (id) => document.getElementById(id);
+const state = { block: Object.keys(DATA)[0], mode: "pbr", layout: "one", sun: 35, elev: 38, depth: 0.6 };
+
+const canvas = $("view");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.physicallyCorrectLights = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 4 / 3, 0.05, 100);
+
+// Sky environment for metal reflections: gradient sky, warm horizon, sun glow, dark ground.
+(function makeEnv() {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 256;
+  const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#5d7fb8"); grad.addColorStop(0.45, "#b9c7d8"); grad.addColorStop(0.5, "#e8dcc4");
+  grad.addColorStop(0.52, "#6b5f50"); grad.addColorStop(1, "#2a2520");
+  g.fillStyle = grad; g.fillRect(0, 0, 512, 256);
+  const s = g.createRadialGradient(150, 70, 2, 150, 70, 60);
+  s.addColorStop(0, "rgba(255,248,230,1)"); s.addColorStop(1, "rgba(255,248,230,0)");
+  g.fillStyle = s; g.fillRect(0, 0, 512, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping; tex.encoding = THREE.sRGBEncoding;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromEquirectangular(tex).texture;
+  scene.background = new THREE.Color(0x101014);
+})();
+
+const sun = new THREE.DirectionalLight(0xfff0dc, 3.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -3; sun.shadow.camera.right = 3; sun.shadow.camera.top = 3; sun.shadow.camera.bottom = -3;
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
+scene.add(sun, sun.target);
+scene.add(new THREE.HemisphereLight(0xb8c8e0, 0x3a3128, 0.35));
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.4 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+// ---------- textures & materials ----------
+const manager = new THREE.LoadingManager(() => { $("loading").hidden = true; render(); });
+const loader = new THREE.TextureLoader(manager);
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+const texCache = {};
+function tex(src, srgb) {
+  if (texCache[src]) return texCache[src];
+  const t = loader.load(src, () => render());
+  t.encoding = srgb ? THREE.sRGBEncoding : THREE.LinearEncoding;
+  t.anisotropy = maxAniso;
+  return (texCache[src] = t);
+}
+function material(set, mode, depth, alpha) {
+  const map = tex(set.albedo, true);
+  if (mode === "flat") return new THREE.MeshStandardMaterial({ map, roughness: 0.85, metalness: 0, alphaTest: alpha ? 0.5 : 0 });
+  const orm = tex(set.orm, false);
+  const d = 0.25 * depth; // LabPBR: height 0 = 25% of a block deep
+  return new THREE.MeshStandardMaterial({
+    map, normalMap: tex(set.normal, false), normalScale: new THREE.Vector2(1, 1),
+    aoMap: orm, aoMapIntensity: 1, roughnessMap: orm, metalnessMap: orm, roughness: 1, metalness: 1,
+    displacementMap: tex(set.height, false), displacementScale: d, displacementBias: -d,
+    alphaTest: alpha ? 0.5 : 0, envMapIntensity: 1,
+  });
+}
+
+// One face = subdivided plane with its UVs remapped to a 0..16 Minecraft UV rect.
+const FACES = {
+  up:    { n: [0, 1, 0],  rot: [-Math.PI / 2, 0, 0] },
+  down:  { n: [0, -1, 0], rot: [Math.PI / 2, 0, 0] },
+  south: { n: [0, 0, 1],  rot: [0, 0, 0] },
+  north: { n: [0, 0, -1], rot: [0, Math.PI, 0] },
+  east:  { n: [1, 0, 0],  rot: [0, Math.PI / 2, 0] },
+  west:  { n: [-1, 0, 0], rot: [0, -Math.PI / 2, 0] },
+};
+function face(name, size, uv, mat, segs) {
+  const [sx, sy, sz] = size;
+  const w = name === "east" || name === "west" ? sz : sx;
+  const h = name === "up" || name === "down" ? sz : sy;
+  const g = new THREE.PlaneGeometry(w, h, segs, segs);
+  const a = g.attributes.uv;
+  const [u0, v0, u1, v1] = uv;
+  for (let i = 0; i < a.count; i++) {
+    a.setXY(i, u0 / 16 + a.getX(i) * (u1 - u0) / 16, 1 - v1 / 16 + a.getY(i) * (v1 - v0) / 16);
+  }
+  g.setAttribute("uv2", new THREE.BufferAttribute(a.array, 2));
+  const m = new THREE.Mesh(g, mat);
+  const f = FACES[name];
+  m.rotation.set(...f.rot);
+  m.position.set(f.n[0] * sx / 2, f.n[1] * sy / 2, f.n[2] * sz / 2);
+  m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
+
+function buildBlock(entry, mode, depth, segs) {
+  const grp = new THREE.Group();
+  if (entry.kind === "shaft") {
+    const side = material(entry.tex, mode, depth, true);
+    const top = material(entry.topTex, mode, depth, true);
+    const size = [0.25, 1, 0.25];
+    for (const f of ["north", "south", "east", "west"]) grp.add(face(f, size, [6, 0, 10, 16], side, segs));
+    for (const f of ["up", "down"]) grp.add(face(f, size, [6, 6, 10, 10], top, Math.max(8, segs / 4)));
+  } else {
+    const mat = material(entry.tex, mode, depth, false);
+    // double-sided so the hairline gaps displaced edges open at the corners show the inner faces
+    mat.side = THREE.DoubleSide;
+    for (const f of Object.keys(FACES)) grp.add(face(f, [1, 1, 1], [0, 0, 16, 16], mat, segs));
+  }
+  return grp;
+}
+
+let current = null;
+function rebuild() {
+  if (current) { scene.remove(current); current.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+  const entry = DATA[state.block];
+  const wall = state.layout === "wall";
+  const root = new THREE.Group();
+  if (wall) {
+    for (let i = -1; i <= 1; i++) for (let j = 0; j < 3; j++) {
+      const b = buildBlock(entry, state.mode, state.depth, 48);
+      b.position.set(i * (entry.kind === "shaft" ? 0.5 : 1), j + 0.5, 0);
+      root.add(b);
+    }
+  } else {
+    const b = buildBlock(entry, state.mode, state.depth, 160);
+    b.position.y = 0.5; root.add(b);
+  }
+  current = root; scene.add(root);
+  frameCamera();
+  render();
+}
+
+// ---------- camera orbit ----------
+const orbit = { yaw: 0.72, pitch: 0.42, dist: 3.2 };
+function frameCamera() {
+  const wall = state.layout === "wall";
+  const target = new THREE.Vector3(0, wall ? 1.5 : 0.5, 0);
+  const d = orbit.dist * (wall ? 2.4 : 1);
+  camera.position.set(
+    target.x + d * Math.cos(orbit.pitch) * Math.sin(orbit.yaw),
+    target.y + d * Math.sin(orbit.pitch),
+    target.z + d * Math.cos(orbit.pitch) * Math.cos(orbit.yaw));
+  camera.lookAt(target);
+}
+let drag = null;
+canvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.008;
+  orbit.pitch = Math.min(1.45, Math.max(-0.2, orbit.pitch + (e.clientY - drag.y) * 0.006));
+  drag = { x: e.clientX, y: e.clientY };
+  frameCamera(); render();
+});
+canvas.addEventListener("pointerup", () => (drag = null));
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  orbit.dist = Math.min(7, Math.max(1.3, orbit.dist * (e.deltaY > 0 ? 1.08 : 0.93)));
+  frameCamera(); render();
+}, { passive: false });
+
+function placeSun() {
+  const az = state.sun * Math.PI / 180, el = state.elev * Math.PI / 180;
+  const c = state.layout === "wall" ? 1.5 : 0.5;
+  sun.position.set(6 * Math.cos(el) * Math.sin(az), c + 6 * Math.sin(el), 6 * Math.cos(el) * Math.cos(az));
+  sun.target.position.set(0, c, 0);
+}
+
+function resize() {
+  const r = $("stage").getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  render();
+}
+let queued = false;
+function render() {
+  if (queued) return; queued = true;
+  requestAnimationFrame(() => { queued = false; placeSun(); renderer.render(scene, camera); });
+}
+new ResizeObserver(resize).observe($("stage"));
+
+// ---------- UI ----------
+function pressed(groupEl, v) { groupEl.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v))); }
+const blocksEl = $("blocks");
+for (const [key, e] of Object.entries(DATA)) {
+  const b = document.createElement("button");
+  b.type = "button"; b.dataset.v = key; b.textContent = e.label; b.setAttribute("aria-pressed", String(key === state.block));
+  b.addEventListener("click", () => { state.block = key; pressed(blocksEl, key); updateInfo(); rebuild(); });
+  blocksEl.appendChild(b);
+}
+for (const id of ["mode", "layout"]) {
+  $(id).addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    state[id] = b.dataset.v; pressed($(id), b.dataset.v); rebuild();
+  });
+}
+$("sun").addEventListener("input", (e) => { state.sun = +e.target.value; $("sunv").textContent = e.target.value + "°"; render(); });
+$("elev").addEventListener("input", (e) => { state.elev = +e.target.value; $("elevv").textContent = e.target.value + "°"; render(); });
+$("depth").addEventListener("input", (e) => { $("depthv").textContent = e.target.value + "%"; });
+$("depth").addEventListener("change", (e) => { state.depth = e.target.value / 100; rebuild(); });
+
+function updateInfo() {
+  const e = DATA[state.block];
+  const f = e.file;
+  $("maps").innerHTML = "";
+  for (const [k, cap] of [["albedo", f + ".png"], ["n", f + "_n.png"], ["s", f + "_s.png"]]) {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img"); img.src = e.thumbs[k]; img.alt = cap;
+    const fc = document.createElement("figcaption"); fc.textContent = cap.replace(f, "");
+    fig.append(img, fc); $("maps").appendChild(fig);
+  }
+  const s = e.stats;
+  $("meta").innerHTML =
+    `<b>assets/create/textures/block/${f}</b><br>` +
+    `_s.G metal ids: <b>${s.metals.join(", ") || "none (dielectric)"}</b><br>` +
+    `_s.R smoothness: <b>${s.smooth[0]}–${s.smooth[1]}</b> / 255<br>` +
+    `_s.B porosity max: <b>${s.porosity}</b> · emissive: <b>none</b>`;
+  $("litimg").src = e.thumbs.lit;
+}
+
+updateInfo();
+rebuild();
+</script>
