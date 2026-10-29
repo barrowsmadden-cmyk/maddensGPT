@@ -1,4 +1,4 @@
-"""Write the hand-made textures (tools and weapons so far) into the hand-built
+"""Write the hand-made textures into the hand-built
 overlay pack, at the item tier size from plan.py.
 
     python3 build_handmade.py <handbuilt_pack_dir> [size] [src_dir] [plan.json]
@@ -26,7 +26,8 @@ def main(pack, size=64, src=None, plan=None):
     if src and plan:
         import json
         from handmade import armor, items
-        from handmade import glass, rocks, storage, surfaces
+        from handmade import buckets, create_items, glass, rocks, storage, surfaces
+        buckets.prepare(os.path.join(src, "assets"))
         for t in json.load(open(plan))["plan"]:
             if t["kind"] == "block" and t["frames"] == 1 and rocks.rock_of(t["path"], t["ns"]):
                 img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
@@ -51,6 +52,17 @@ def main(pack, size=64, src=None, plan=None):
             if t["kind"] != "item" or t["frames"] > 1 or t["w"] != t["h"]:
                 continue
             if t["ns"] == "minecraft" and any(t["path"] == rel for rel, *_ in tools.items()):
+                continue
+            if t["path"].endswith("bucket.png"):
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                if buckets.bucket_of(t["path"], t["ns"], img):
+                    write(pack, t["ns"], t["path"], buckets.render(t["path"], img, t["w"] * t["scale"], t["ns"]))
+                    n += 1
+                    continue
+            if create_items.create_item_of(t["path"], t["ns"]) is not None:
+                img = load_rgba(os.path.join(src, "assets", t["ns"], t["path"]))
+                write(pack, t["ns"], t["path"], create_items.render(t["path"], img, t["w"] * t["scale"], t["ns"]))
+                n += 1
                 continue
             if items.archetype_of(t["path"], t["ns"]) is not None:
                 renderer = items.render
