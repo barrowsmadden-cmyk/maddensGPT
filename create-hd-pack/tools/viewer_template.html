@@ -42,6 +42,7 @@ h1 span { color: var(--brass); }
 .blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .blocks button, .seg button { font: 500 14px var(--body); color: var(--fg); background: var(--panel); border: 1px solid var(--line);
   border-radius: 4px; padding: 8px 10px; text-align: left; cursor: pointer; }
+.seg button:disabled { opacity: .45; cursor: not-allowed; }
 .blocks button[aria-pressed="true"], .seg button[aria-pressed="true"] { background: var(--brass); color: var(--brass-ink); border-color: var(--brass); }
 .blocks button:focus-visible, .seg button:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .seg { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -66,7 +67,7 @@ footer { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
 <div class="wrap">
   <header>
     <h1>Create <span>HD</span> Block Samples</h1>
-    <div class="spec">256×256 · LabPBR 1.3 · _n + _s · procedurally built</div>
+    <div class="spec">MC 1.21.1 · Create 6.0.10 · 256×256 · LabPBR 1.3 · connected textures</div>
   </header>
 
   <div class="main">
@@ -89,7 +90,7 @@ footer { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
         </div>
         <div class="seg" id="layout">
           <button type="button" data-v="one" aria-pressed="true">Single block</button>
-          <button type="button" data-v="wall" aria-pressed="false">3×3 wall</button>
+          <button type="button" data-v="wall" aria-pressed="false" id="wallbtn">Connected wall</button>
         </div>
         <div class="row"><label for="sun">Sun angle</label><input id="sun" type="range" min="0" max="360" value="35"><output id="sunv">35°</output></div>
         <div class="row"><label for="elev">Sun height</label><input id="elev" type="range" min="5" max="85" value="38"><output id="elevv">38°</output></div>
@@ -107,7 +108,7 @@ footer { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
     </aside>
   </div>
 
-  <footer>Displacement here stands in for parallax occlusion mapping, which shader packs apply in-game. Textures are original procedural work styled after a clean HD look; nothing is copied from Create's or Prime's art.</footer>
+  <footer>The connected wall picks each face's tile with the same rules the game uses: Create's own connected-texture code for the casings, and Continuity's for the Industrial Iron Block. Displacement here stands in for parallax occlusion mapping, which shader packs apply in-game. Textures are original procedural work styled after a clean HD look; nothing is copied from Create's or Prime's art.</footer>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -211,7 +212,59 @@ function face(name, size, uv, mat, segs) {
   return m;
 }
 
-function buildBlock(entry, mode, depth, segs) {
+// ---------- connected textures ----------
+// Port of Create 6.0.10 AllCTTypes.OMNIDIRECTIONAL.getTextureIndex.
+function omniIndex(c) {
+  let tileX = 0, tileY = 0;
+  const borders = !c.up + !c.down + !c.left + !c.right;
+  if (c.up) tileX++;
+  if (c.down) tileX += 2;
+  if (c.left) tileY++;
+  if (c.right) tileY += 2;
+  if (borders === 0) {
+    if (c.topRight) tileX++;
+    if (c.topLeft) tileX += 2;
+    if (c.bottomRight) tileY += 2;
+    if (c.bottomLeft) tileY++;
+  }
+  if (borders === 1) {
+    if (!c.right && (c.topLeft || c.bottomLeft)) { tileY = 4; tileX = -1 + (c.bottomLeft ? 1 : 0) + (c.topLeft ? 2 : 0); }
+    if (!c.left && (c.topRight || c.bottomRight)) { tileY = 5; tileX = -1 + (c.bottomRight ? 1 : 0) + (c.topRight ? 2 : 0); }
+    if (!c.down && (c.topLeft || c.topRight)) { tileY = 6; tileX = -1 + (c.topLeft ? 1 : 0) + (c.topRight ? 2 : 0); }
+    if (!c.up && (c.bottomLeft || c.bottomRight)) { tileY = 7; tileX = -1 + (c.bottomLeft ? 1 : 0) + (c.bottomRight ? 2 : 0); }
+  }
+  if (borders === 2 && ((c.up && c.left && c.topLeft) || (c.down && c.left && c.bottomLeft) ||
+      (c.up && c.right && c.topRight) || (c.down && c.right && c.bottomRight))) tileX += 3;
+  return tileX + 8 * tileY;
+}
+// Continuity CtmSpriteProvider.SPRITE_INDEX_MAP (bits: 1 L, 2 BL, 4 D, 8 BR, 16 R, 32 TR, 64 U, 128 TL)
+const CTM_MAP = /*__CTM_MAP__*/null;
+function ctmIndex(c) {
+  return CTM_MAP[(c.left ? 1 : 0) | (c.bottomLeft ? 2 : 0) | (c.down ? 4 : 0) | (c.bottomRight ? 8 : 0) |
+    (c.right ? 16 : 0) | (c.topRight ? 32 : 0) | (c.up ? 64 : 0) | (c.topLeft ? 128 : 0)];
+}
+// Wall with a hole and an inner corner, rows top to bottom.
+const WALL = ["11110", "11110", "11011", "11111"];
+const WALL_W = WALL[0].length, WALL_H = WALL.length;
+function solid(x, y, z) {
+  const r = WALL_H - 1 - y, c = x;
+  return z === 0 && r >= 0 && r < WALL_H && c >= 0 && c < WALL_W && WALL[r][c] === "1";
+}
+// Texture-space right/up for each face (matches the UV layout in face()).
+const TEX_AXES = {
+  south: { r: [1, 0, 0], u: [0, 1, 0] }, north: { r: [-1, 0, 0], u: [0, 1, 0] },
+  east: { r: [0, 0, -1], u: [0, 1, 0] }, west: { r: [0, 0, 1], u: [0, 1, 0] },
+  up: { r: [1, 0, 0], u: [0, 0, -1] }, down: { r: [1, 0, 0], u: [0, 0, 1] },
+};
+function faceContext(p, f) {
+  const { r, u } = TEX_AXES[f];
+  const at = (dx, dy) => solid(p[0] + r[0] * dx + u[0] * dy, p[1] + r[1] * dx + u[1] * dy, p[2] + r[2] * dx + u[2] * dy);
+  const up = at(0, 1), down = at(0, -1), left = at(-1, 0), right = at(1, 0);
+  return { up, down, left, right, topLeft: up && left && at(-1, 1), topRight: up && right && at(1, 1),
+    bottomLeft: down && left && at(-1, -1), bottomRight: down && right && at(1, -1) };
+}
+
+function buildBlock(entry, mode, depth, segs, wallPos, mats) {
   const grp = new THREE.Group();
   if (entry.kind === "shaft") {
     const side = material(entry.tex, mode, depth, true);
@@ -220,12 +273,36 @@ function buildBlock(entry, mode, depth, segs) {
     for (const f of ["north", "south", "east", "west"]) grp.add(face(f, size, [6, 0, 10, 16], side, segs));
     for (const f of ["up", "down"]) grp.add(face(f, size, [6, 6, 10, 10], top, Math.max(8, segs / 4)));
   } else {
-    const mat = material(entry.tex, mode, depth, false);
-    // double-sided so the hairline gaps displaced edges open at the corners show the inner faces
-    mat.side = THREE.DoubleSide;
-    for (const f of Object.keys(FACES)) grp.add(face(f, [1, 1, 1], [0, 0, 16, 16], mat, segs));
+    for (const f of Object.keys(FACES)) {
+      const end = (f === "up" || f === "down") && mats.end;
+      let mat = end ? mats.end : mats.base, uv = [0, 0, 16, 16];
+      if (wallPos) {
+        const n = FACES[f].n;
+        if (solid(wallPos[0] + n[0], wallPos[1] + n[1], wallPos[2] + n[2])) continue;  // hidden face
+        if (entry.ct) {
+          const ctx = faceContext(wallPos, f);
+          const i = entry.ct.type === "omni" ? omniIndex(ctx) : ctmIndex(ctx);
+          const tx = i % 8, ty = Math.floor(i / 8);
+          // inset half a texel (1024px sheet) so filtering never samples the neighbouring tile
+          const e = 0.5 / 1024 * 16;
+          mat = end ? mats.endSheet : mats.sheet; uv = [tx * 2 + e, ty * 2 + e, tx * 2 + 2 - e, ty * 2 + 2 - e];
+        }
+      }
+      grp.add(face(f, [1, 1, 1], uv, mat, segs));
+    }
   }
   return grp;
+}
+
+function blockMaterials(entry, mode, depth) {
+  if (entry.kind === "shaft") return null;
+  const mats = { base: material(entry.tex, mode, depth, false) };
+  if (entry.endTex) mats.end = material(entry.endTex, mode, depth, false);
+  if (entry.ct) mats.sheet = material(entry.ct.tex, mode, depth, false);
+  if (entry.ct && entry.ct.endTex) mats.endSheet = material(entry.ct.endTex, mode, depth, false);
+  // double-sided so the hairline gaps displaced edges open at the corners show the inner faces
+  for (const m of Object.values(mats)) m.side = THREE.DoubleSide;
+  return mats;
 }
 
 let current = null;
@@ -234,14 +311,16 @@ function rebuild() {
   const entry = DATA[state.block];
   const wall = state.layout === "wall";
   const root = new THREE.Group();
+  const mats = blockMaterials(entry, state.mode, state.depth);
   if (wall) {
-    for (let i = -1; i <= 1; i++) for (let j = 0; j < 3; j++) {
-      const b = buildBlock(entry, state.mode, state.depth, 48);
-      b.position.set(i * (entry.kind === "shaft" ? 0.5 : 1), j + 0.5, 0);
+    for (let y = 0; y < WALL_H; y++) for (let x = 0; x < WALL_W; x++) {
+      if (!solid(x, y, 0)) continue;
+      const b = buildBlock(entry, state.mode, state.depth, 64, [x, y, 0], mats);
+      b.position.set(x - (WALL_W - 1) / 2, y + 0.5, 0);
       root.add(b);
     }
   } else {
-    const b = buildBlock(entry, state.mode, state.depth, 160);
+    const b = buildBlock(entry, state.mode, state.depth, 160, null, mats);
     b.position.y = 0.5; root.add(b);
   }
   current = root; scene.add(root);
@@ -253,8 +332,8 @@ function rebuild() {
 const orbit = { yaw: 0.72, pitch: 0.42, dist: 3.2 };
 function frameCamera() {
   const wall = state.layout === "wall";
-  const target = new THREE.Vector3(0, wall ? 1.5 : 0.5, 0);
-  const d = orbit.dist * (wall ? 2.4 : 1);
+  const target = new THREE.Vector3(0, wall ? WALL_H / 2 : 0.5, 0);
+  const d = orbit.dist * (wall ? 2.6 : 1);
   camera.position.set(
     target.x + d * Math.cos(orbit.pitch) * Math.sin(orbit.yaw),
     target.y + d * Math.sin(orbit.pitch),
@@ -279,7 +358,7 @@ canvas.addEventListener("wheel", (e) => {
 
 function placeSun() {
   const az = state.sun * Math.PI / 180, el = state.elev * Math.PI / 180;
-  const c = state.layout === "wall" ? 1.5 : 0.5;
+  const c = state.layout === "wall" ? WALL_H / 2 : 0.5;
   sun.position.set(6 * Math.cos(el) * Math.sin(az), c + 6 * Math.sin(el), 6 * Math.cos(el) * Math.cos(az));
   sun.target.position.set(0, c, 0);
 }
@@ -303,12 +382,16 @@ const blocksEl = $("blocks");
 for (const [key, e] of Object.entries(DATA)) {
   const b = document.createElement("button");
   b.type = "button"; b.dataset.v = key; b.textContent = e.label; b.setAttribute("aria-pressed", String(key === state.block));
-  b.addEventListener("click", () => { state.block = key; pressed(blocksEl, key); updateInfo(); rebuild(); });
+  b.addEventListener("click", () => {
+    state.block = key; pressed(blocksEl, key);
+    if (DATA[key].kind === "shaft" && state.layout === "wall") { state.layout = "one"; pressed($("layout"), "one"); }
+    updateInfo(); rebuild();
+  });
   blocksEl.appendChild(b);
 }
 for (const id of ["mode", "layout"]) {
   $(id).addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
     state[id] = b.dataset.v; pressed($(id), b.dataset.v); rebuild();
   });
 }
@@ -332,7 +415,9 @@ function updateInfo() {
     `<b>assets/create/textures/block/${f}</b><br>` +
     `_s.G metal ids: <b>${s.metals.join(", ") || "none (dielectric)"}</b><br>` +
     `_s.R smoothness: <b>${s.smooth[0]}–${s.smooth[1]}</b> / 255<br>` +
-    `_s.B porosity max: <b>${s.porosity}</b> · emissive: <b>none</b>`;
+    `_s.B porosity max: <b>${s.porosity}</b> · emissive: <b>none</b><br>` +
+    `connects: <b>${e.ct ? e.ct.note : "no (same texture on every block)"}</b>`;
+  $("wallbtn").disabled = e.kind === "shaft";
   $("litimg").src = e.thumbs.lit;
 }
 

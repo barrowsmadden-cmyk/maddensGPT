@@ -166,12 +166,26 @@ class Material:
             self.porosity = self.porosity + (porosity - self.porosity) * m
 
 
-def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0):
-    """Turn material layers into (albedo RGBA, _n RGBA, _s RGBA) uint8 arrays."""
+def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.0, edges="wrap"):
+    """Turn material layers into (albedo RGBA, _n RGBA, _s RGBA) uint8 arrays.
+
+    edges: "wrap" for textures that tile against themselves; "reflect" for
+    connected-texture tiles, whose real neighbour differs from the opposite edge.
+    """
+    if edges == "wrap":
+        bl = blur
+    else:
+        def bl(a, sigma, p=48):
+            return blur(np.pad(a, p, mode="reflect"), sigma)[p:-p, p:-p]
     h = mat.height
-    hs = blur(h, 0.8)
-    dx = (np.roll(hs, -1, 1) - np.roll(hs, 1, 1)) * 0.5
-    dy = (np.roll(hs, -1, 0) - np.roll(hs, 1, 0)) * 0.5
+    hs = bl(h, 0.8)
+    if edges == "wrap":
+        dx = (np.roll(hs, -1, 1) - np.roll(hs, 1, 1)) * 0.5
+        dy = (np.roll(hs, -1, 0) - np.roll(hs, 1, 0)) * 0.5
+    else:
+        hp = np.pad(hs, 1, mode="reflect")
+        dx = (hp[1:-1, 2:] - hp[1:-1, :-2]) * 0.5
+        dy = (hp[2:, 1:-1] - hp[:-2, 1:-1]) * 0.5
     s = normal_strength * N / 16.0  # strength expressed per vanilla pixel
     nx, ny, nz = -dx * s, -dy * s, np.ones_like(h)
     ln = np.sqrt(nx ** 2 + ny ** 2 + nz ** 2)
@@ -180,13 +194,13 @@ def derive(mat, normal_strength=6.0, ao_strength=1.0, bake_ao=0.55, edge_wear=0.
     # cavity AO at several radii
     cav = np.zeros_like(h)
     for sigma, w in ((2, 0.9), (6, 0.8), (14, 0.5)):
-        cav += w * np.clip(blur(h, sigma) - h, 0, None)
+        cav += w * np.clip(bl(h, sigma) - h, 0, None)
     ao = np.clip(1 - cav * 4.0 * ao_strength, 0.25, 1) * mat.extra_ao
-    ao = blur(ao, 0.7)
+    ao = bl(ao, 0.7)
 
     albedo = mat.albedo.copy()
     if edge_wear:
-        convex = np.clip(-(blur(h, 1.2) - blur(h, 3.5)) * 30, 0, 1)
+        convex = np.clip(-(bl(h, 1.2) - bl(h, 3.5)) * 30, 0, 1)
         albedo = lerp(albedo, np.clip(albedo * 1.35 + 0.05, 0, 1), convex * edge_wear)
         mat.smooth = np.clip(mat.smooth + convex * edge_wear * 0.2, 0, 1)
     albedo = albedo * (1 - bake_ao * (1 - ao))[..., None]
