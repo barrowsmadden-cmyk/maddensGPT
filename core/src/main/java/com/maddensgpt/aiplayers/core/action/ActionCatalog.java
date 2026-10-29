@@ -19,6 +19,10 @@ public final class ActionCatalog {
     public static final String SET_PLAN = "set_plan";
     public static final String WAIT = "wait";
 
+    // Web actions (brain-handled, offered only when internet access is set up)
+    public static final String WEB_SEARCH = "web_search";
+    public static final String READ_WEBPAGE = "read_webpage";
+
     // Game actions
     public static final String MOVE_TO = "move_to";
     public static final String FOLLOW_PLAYER = "follow_player";
@@ -38,7 +42,7 @@ public final class ActionCatalog {
     public static final String TAKE_ITEMS = "take_items";
     public static final String FIND = "find";
 
-    public static final Set<String> BRAIN_ACTIONS = Set.of(SAY, REMEMBER, SET_PLAN, WAIT);
+    public static final Set<String> BRAIN_ACTIONS = Set.of(SAY, REMEMBER, SET_PLAN, WAIT, WEB_SEARCH, READ_WEBPAGE);
 
     private static final List<ToolSpec> BRAIN_SPECS = List.of(
             tool(SAY, "Send a message in the in-game chat. This is the ONLY way other players see what you say "
@@ -52,6 +56,18 @@ public final class ActionCatalog {
                             + "3. craft a wooden pickaxe'. Empty to clear.", true)),
             tool(WAIT, "Do nothing for a while, e.g. to wait for someone or for night to pass.",
                     new Schema().integer("seconds", "How long to wait, 1 to 60.", true)));
+
+    private static final ToolSpec WEB_SEARCH_SPEC = tool(WEB_SEARCH,
+            "Search the internet. Use it for things you are unsure about (recipes, mob behaviour, mod items, "
+                    + "version changes) or when a player asks a question you cannot answer from the game. "
+                    + "Returns titles, links and short snippets.",
+            new Schema().string("query", "What to search for, e.g. 'minecraft how to make a brewing stand'.", true));
+
+    private static final ToolSpec READ_WEBPAGE_SPEC = tool(READ_WEBPAGE,
+            "Download a public web page and read its text, e.g. a link from web_search results.",
+            new Schema()
+                    .string("url", "The page address, starting with https://.", true)
+                    .integer("start", "Character offset to continue reading a long page from. Default 0.", false));
 
     private static final List<ToolSpec> GAME_SPECS = List.of(
             tool(MOVE_TO, "Walk to a block position using pathfinding. Fails if there is no path.",
@@ -126,6 +142,8 @@ public final class ActionCatalog {
 
     static {
         List<ToolSpec> all = new ArrayList<>(BRAIN_SPECS);
+        all.add(WEB_SEARCH_SPEC);
+        all.add(READ_WEBPAGE_SPEC);
         all.addAll(GAME_SPECS);
         ALL_SPECS = List.copyOf(all);
     }
@@ -133,9 +151,17 @@ public final class ActionCatalog {
     private ActionCatalog() {
     }
 
-    /** Every function, in the order they are offered to the model. */
+    /** Every function, including the web ones, in the order they are offered to the model. */
     public static List<ToolSpec> all() {
         return ALL_SPECS;
+    }
+
+    /** The functions to offer, leaving out web access the server has not set up. */
+    public static List<ToolSpec> offered(boolean webSearch, boolean readPages) {
+        return ALL_SPECS.stream()
+                .filter(spec -> webSearch || !spec.name().equals(WEB_SEARCH))
+                .filter(spec -> readPages || !spec.name().equals(READ_WEBPAGE))
+                .toList();
     }
 
     public static List<ToolSpec> gameActions() {

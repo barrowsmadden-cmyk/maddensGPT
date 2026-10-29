@@ -9,6 +9,7 @@ import com.maddensgpt.aiplayers.core.brain.BotBrain;
 import com.maddensgpt.aiplayers.core.brain.BotEnvironment;
 import com.maddensgpt.aiplayers.core.brain.BotSettings;
 import com.maddensgpt.aiplayers.core.brain.SettingsFile;
+import com.maddensgpt.aiplayers.core.web.HttpWebAccess;
 import com.maddensgpt.aiplayers.core.world.Observation;
 
 import java.nio.file.Path;
@@ -37,6 +38,26 @@ public final class ApiCheck {
             System.out.println("\nFix these in the config first:");
             problems.forEach(problem -> System.out.println("  - " + problem));
             System.exit(1);
+        }
+
+        HttpWebAccess web = null;
+        if (settings.web.enabled) {
+            List<String> webProblems = settings.web.validate();
+            if (!webProblems.isEmpty()) {
+                System.out.println("\nWeb access is enabled but cannot work yet:");
+                webProblems.forEach(problem -> System.out.println("  - " + problem));
+                System.exit(1);
+            }
+            web = new HttpWebAccess(settings.web);
+            System.out.println("\nTesting web search (" + settings.web.searchProvider + ")...");
+            try {
+                System.out.println(web.search("minecraft how to craft a brewing stand").get(60, TimeUnit.SECONDS));
+            } catch (Exception e) {
+                System.out.println("Web search failed: " + (e.getCause() != null ? e.getCause().getMessage() : e));
+                System.exit(1);
+            }
+        } else {
+            System.out.println("Web access: off (set web.enabled to true to let the bot search the internet)");
         }
 
         try (OpenAiCompatibleClient client = new OpenAiCompatibleClient(provider)) {
@@ -73,7 +94,7 @@ public final class ApiCheck {
             };
             // Only one request: the gap before a second one is longer than this check runs.
             settings.minSecondsBetweenRequests = 1_000_000;
-            BotBrain brain = new BotBrain("Robo", settings, client, ApiCheck::pretend, env);
+            BotBrain brain = new BotBrain("Robo", settings, client, ApiCheck::pretend, env, web);
             brain.onChat("Steve", "hey Robo, can you help me get some wood?", false);
 
             System.out.println("\nRunning one turn (game actions are only printed, not performed):");
@@ -99,6 +120,10 @@ public final class ApiCheck {
             BotBrain.Status status = brain.status();
             System.out.println("\nDone. Requests: " + status.totalRequests() + ", tokens in/out: "
                     + status.promptTokens() + "/" + status.completionTokens());
+        } finally {
+            if (web != null) {
+                web.close();
+            }
         }
     }
 

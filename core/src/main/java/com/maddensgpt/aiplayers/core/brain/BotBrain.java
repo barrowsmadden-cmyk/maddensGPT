@@ -13,6 +13,8 @@ import com.maddensgpt.aiplayers.core.ai.ChatResponse;
 import com.maddensgpt.aiplayers.core.ai.ToolCall;
 import com.maddensgpt.aiplayers.core.ai.ToolSpec;
 import com.maddensgpt.aiplayers.core.chat.ChatPacer;
+import com.maddensgpt.aiplayers.core.web.WebAccess;
+import com.maddensgpt.aiplayers.core.web.WebException;
 import com.maddensgpt.aiplayers.core.world.Observation;
 
 import java.util.ArrayDeque;
@@ -21,6 +23,8 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -93,13 +97,49 @@ public final class BotBrain {
         }
     }
 
+    /** A web lookup in progress: finishes when its future does. */
+    private static final class WebLookup implements RunningAction {
+        private final CompletableFuture<String> future;
+        private final String description;
+
+        WebLookup(CompletableFuture<String> future, String description) {
+            this.future = future;
+            this.description = description;
+        }
+
+        @Override
+        public ActionResult tick() {
+            if (!future.isDone()) {
+                return null;
+            }
+            try {
+                return ActionResult.ok(future.join());
+            } catch (CompletionException | CancellationException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                String reason = cause instanceof WebException ? cause.getMessage() : "something went wrong";
+                return ActionResult.fail("Web lookup failed: " + reason + ".");
+            }
+        }
+
+        @Override
+        public void cancel() {
+            future.cancel(true);
+        }
+
+        @Override
+        public String describe() {
+            return description;
+        }
+    }
+
     private final String botName;
     private final BotSettings settings;
     private final ChatClient client;
     private final ActionHandler actions;
     private final BotEnvironment env;
+    private final WebAccess web;
     private final ChatPacer pacer;
-    private final List<ToolSpec> tools = ActionCatalog.all();
+    private final List<ToolSpec> tools;
     private final String systemPrompt;
     private final Pattern mentionPattern;
 
@@ -146,16 +186,29 @@ public final class BotBrain {
     private boolean turnFailed;
     private boolean turnUsedWorldTime;
 
+    /** A bot without internet access. */
     public BotBrain(String botName, BotSettings settings, ChatClient client, ActionHandler actions,
                     BotEnvironment env) {
+        this(botName, settings, client, actions, env, null);
+    }
+
+    /**
+     * @param web internet access, or null for none; web_search and read_webpage are only offered
+     *            to the model when this is set
+     */
+    public BotBrain(String botName, BotSettings settings, ChatClient client, ActionHandler actions,
+                    BotEnvironment env, WebAccess web) {
         this.botName = Objects.requireNonNull(botName, "botName");
         this.settings = Objects.requireNonNull(settings, "settings").sanitize();
         this.client = Objects.requireNonNull(client, "client");
         this.actions = Objects.requireNonNull(actions, "actions");
         this.env = Objects.requireNonNull(env, "env");
+        this.web = web;
+        boolean readPages = web != null && web.canReadPages();
+        this.tools = ActionCatalog.offered(web != null, readPages);
         this.pacer = new ChatPacer(botName, settings.chatMaxMessageLength, settings.chatMinGapMillis,
                 settings.chatMaxQueuedLines);
-        this.systemPrompt = PromptBuilder.systemPrompt(botName, settings);
+        this.systemPrompt = PromptBuilder.systemPrompt(botName, settings, web != null, readPages);
         this.mentionPattern = Pattern.compile("(?<![A-Za-z0-9_])" + Pattern.quote(botName) + "(?![A-Za-z0-9_])",
                 Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     }
@@ -487,6 +540,25 @@ public final class BotBrain {
                 }
                 case ActionCatalog.WAIT -> {
                     begin(call, new WaitAction(args.getInt("seconds", 1, 60)));
+                    yield null;
+                }
+                case ActionCatalog.WEB_SEARCH -> {
+                    if (web == null) {
+                        yield ActionResult.fail("You do not have internet access on this server.");
+                    }
+                    String query = args.getString("query");
+                    env.log(botName + " searches the web: " + query);
+                    begin(call, new WebLookup(web.search(query), "searching the web"));
+                    yield null;
+                }
+                case ActionCatalog.READ_WEBPAGE -> {
+                    if (web == null || !web.canReadPages()) {
+                        yield ActionResult.fail("You cannot read web pages on this server.");
+                    }
+                    String url = args.getString("url");
+                    int start = args.optInt("start", 0, 0, Integer.MAX_VALUE);
+                    env.log(botName + " reads " + url);
+                    begin(call, new WebLookup(web.read(url, start), "reading a web page"));
                     yield null;
                 }
                 default -> {

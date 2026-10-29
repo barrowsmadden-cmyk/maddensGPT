@@ -8,7 +8,7 @@ they are doing and thinking.
 
 | Part | State |
 | --- | --- |
-| `core`: AI client, actions, chat narration, think-act loop | Done, unit tested |
+| `core`: AI client, actions, chat narration, think-act loop, internet access | Done, unit tested |
 | `neoforge`: fake player, carrying out actions, `/aibot` commands | Not started: the build needs `maven.neoforged.net` and the Mojang hosts, which this environment blocks |
 
 ## How a bot thinks
@@ -41,10 +41,38 @@ The file is created with defaults on first run. Key settings:
 - `provider.temperature`: optional; leave it out to use the model's default.
 - `provider.extraBody`: extra request fields, e.g. `{"thinking": {"type": "enabled"}}` for DeepSeek
   thinking mode.
+- `web`: internet access for the bots (off by default). See below.
 - `chattiness`: `quiet`, `normal` or `chatty`.
 - `personality`, `trustedPlayers` (empty means anyone), `extraInstructions`.
 - Cost limits: `maxRequestsPerHour`, `minSecondsBetweenRequests`, `idleThinkSeconds`,
   `maxHistoryTurns`.
+
+## Internet access
+
+With `web.enabled` set to `true`, bots get two extra functions:
+
+- `web_search`: searches the internet through [Tavily](https://docs.tavily.com/) or
+  [Brave Search](https://api-dashboard.search.brave.com/docs) (`web.searchProvider`: `tavily` or
+  `brave`). Set the search API key in `web.apiKey`, or in the environment variable named by
+  `web.apiKeyEnv` (default `TAVILY_API_KEY`; use `BRAVE_API_KEY` or similar for Brave).
+- `read_webpage`: downloads a page and returns its text in chunks (`web.maxPageChars`). Turn it off
+  with `web.allowPageReading: false`.
+
+The bot is told to look things up when unsure or when players ask questions, to say so in chat
+("hang on, looking it up"), and to summarize briefly instead of pasting text.
+
+Safety:
+
+- Pages can only be opened over http/https on standard ports, and never on loopback, private,
+  link-local (including cloud metadata) or reserved addresses. Every redirect is checked the same way,
+  so players cannot use the bot to reach the server's own network.
+- `web.blockedDomains` blocks sites (subdomains included).
+- Downloads are capped at `web.maxPageBytes`, and non-text content is refused.
+- All web content is marked as untrusted, and the bot is told never to follow instructions in it.
+- `web.maxRequestsPerHour` caps searches plus page reads per bot.
+
+Known limit: the address check looks up the host itself, and the download looks it up again, so a
+site whose DNS answer changes between the two lookups is not caught.
 
 ## Check your API key without Minecraft
 
@@ -54,7 +82,8 @@ export DEEPSEEK_API_KEY=sk-...        # or OPENAI_API_KEY
 ```
 
 This lists the models your key can use and runs one sample turn against a made-up world, printing
-what the bot says and which actions it tries. It makes one chat request and one model-list request.
+what the bot says and which actions it tries. It makes one chat request and one model-list request,
+plus one web search when `web.enabled` is true.
 
 ## Build and test
 

@@ -2,6 +2,7 @@ package com.maddensgpt.aiplayers.core.brain;
 
 import com.google.gson.annotations.SerializedName;
 import com.maddensgpt.aiplayers.core.ai.ProviderConfig;
+import com.maddensgpt.aiplayers.core.web.WebSettings;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +22,9 @@ public final class BotSettings {
     }
 
     public ProviderConfig provider = ProviderConfig.deepSeek();
+
+    /** Internet access (web search and page reading). Off until a search API key is configured. */
+    public WebSettings web = new WebSettings();
 
     /** Personality description given to the model. */
     public String personality = "Friendly, curious and a little goofy. Loves exploring and building, "
@@ -84,6 +88,7 @@ public final class BotSettings {
         if (provider.extraBody == null) {
             provider.extraBody = new com.google.gson.JsonObject();
         }
+        web = WebSettings.sanitize(web);
         if (personality == null) {
             personality = "";
         }
