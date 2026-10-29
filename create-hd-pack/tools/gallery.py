@@ -50,6 +50,21 @@ def main(src, plan_path, pack, template, out, per_mod=12):
         by_mod[t["mod"]].append(t)
     rng = random.Random(7)
     mods = []
+    # hand-made textures first, so they're easy to review
+    from handmade import bricks as hb, tools as ht
+    hand = {f"minecraft/{rel}" for rel, *_ in ht.items()} | {f"minecraft/{rel}" for rel, *_ in hb.textures()}
+    hand |= {f"create/textures/block/{n}.png" for n in ("andesite_casing", "brass_casing", "copper_casing",
+                                                         "industrial_iron_block", "brass_block")}
+    feat = [t for t in plan if f"{t['ns']}/{t['path']}" in hand]
+    feat.sort(key=lambda t: (t["kind"], t["path"]))
+    cards = []
+    for t in feat:
+        try:
+            o, h, w = thumb_pair(src, pack, t)
+            cards.append(dict(name=t["path"].split("/")[-1][:-4], kind=t["kind"], tier=t["tier"], px=w, orig=o, hd=h))
+        except Exception:
+            pass
+    mods.append(dict(mod="Hand-made", count=len(cards), cards=cards))
     for mod in sorted(by_mod, key=lambda m: (m != "Minecraft 1.21.1", not m.startswith("Create"), m)):
         ts = by_mod[mod]
         blocks = [t for t in ts if t["kind"] == "block" and t["w"] <= 64]
