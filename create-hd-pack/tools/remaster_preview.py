@@ -3,7 +3,10 @@ import sys
 import time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import zlib
 from remaster import remaster, classify
+from families import family_of, generate, load_rgba
+from texgen import derive
 from render import tile_view
 
 FONT = ImageFont.load_default(size=14)
@@ -18,7 +21,13 @@ def main(src_root, dest, scale, rels):
     y = pad
     for rel in rels:
         t = time.time()
-        maps = remaster(f"{src_root}/{rel}", scale, rel)
+        fam = family_of(rel)
+        if fam:
+            src = load_rgba(f"{src_root}/{rel}")
+            m, opts = generate(rel, src, src.shape[1] * scale, seed=zlib.crc32(rel.encode()) % 10000)
+            maps = derive(m, **opts)
+        else:
+            maps = remaster(f"{src_root}/{rel}", scale, rel)
         a8, n8, s8 = maps
         a8, n8, s8 = a8[:a8.shape[1]], n8[:n8.shape[1]], s8[:s8.shape[1]]  # first frame
         dt = time.time() - t
@@ -27,7 +36,7 @@ def main(src_root, dest, scale, rels):
         tiles = [orig, Image.fromarray(a8, "RGBA"),
                  Image.fromarray(np.dstack([n8[..., 0], n8[..., 1], np.full_like(n8[..., 0], 255), a8[..., 3]]), "RGBA"),
                  tile_view((a8, n8, s8))]
-        dr.text((pad, y), f"{rel.split('/')[-1]}   [{classify(rel)}]   {dt:.1f}s", fill=(255, 214, 120), font=FONT)
+        dr.text((pad, y), f"{rel.split('/')[-1]}   [{('family: ' + fam) if fam else classify(rel)}]   {dt:.1f}s", fill=(255, 214, 120), font=FONT)
         y += head
         for i, im in enumerate(tiles):
             bg = Image.new("RGBA", (cw, cw), (48, 48, 52, 255))
